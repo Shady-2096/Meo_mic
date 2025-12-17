@@ -1,6 +1,7 @@
 # Meo Mic
+(Disclaimer: I made this project to solve a specific problem I was facing. Which is, not finding a decent app to use my phone as a mic for my pc. Most apps that I found were either paid, complicated to use, or had ads every damn hour. So even tho I don't have much coding experience, I built this tool without massive help from claude code. So if you feel like the code quality is messy, please feel free to make a pull request)
 
-Use your Android phone as a wireless microphone for your PC. Simple, lightweight, and free.
+Use your Android phone as a wireless microphone for your PC. Simple, lightweight, and free
 
 <img width="400" height="750" alt="Screenshot 2025-12-17 145040" src="https://github.com/user-attachments/assets/29f88143-1b3b-415a-bfc8-e41f3878204b" />
 
