@@ -25,10 +25,10 @@ Download `MeoMic.apk` from [Releases](../../releases)
 
 ## Screenshots
 
-| Android App | PC App |
-|-------------|--------|
-| ![Android](screenshots/android.png) | ![PC](screenshots/pc.png) |
-
+| Android App | 
+|-------------|
+| ![![Screenshot_2025_1217_145308](https://github.com/user-attachments/assets/714a0e75-f48d-40b5-96be-c27ffd640eb1)
+) 
 ## Quick Start
 
 ### Step 1: Install VB-Cable (Windows)
