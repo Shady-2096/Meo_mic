@@ -1,4 +1,4 @@
-(Disclaimer: I made this project to solve a specific problem I was facing. Which is, not finding a decent app to use my phone as a mic for my pc. Most apps that I found were either paid, complicated to use, or had ads every damn hour. So even tho I don't have much coding experience, I built this tool without massive help from claude code. So if you feel like the code quality is messy, please feel free to make a pull request)
+(Disclaimer: I made this project to solve a specific problem I was facing. Which is, not finding a decent app to use my phone as a mic for my pc. Most apps that I found were either paid, complicated to use, or had ads every damn hour. So even tho I don't have much coding experience, I built this tool with massive help from claude code. So if you feel like the code quality is messy, please feel free to make a pull request)
 
 # Meo Mic
 
