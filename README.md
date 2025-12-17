@@ -2,8 +2,8 @@
 
 Use your Android phone as a wireless microphone for your PC. Simple, lightweight, and free.
 
-!(<img width="400" height="750" alt="Screenshot 2025-12-17 145040" src="https://github.com/user-attachments/assets/39868812-3ca2-424f-ad2d-6cad1b73e4b9" />
-)
+!(<img width="400" height="750" alt="Screenshot 2025-12-17 145040" src="https://github.com/user-attachments/assets/29f88143-1b3b-415a-bfc8-e41f3878204b" />)
+
 
 ## Features
 
