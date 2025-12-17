@@ -2,7 +2,8 @@
 
 Use your Android phone as a wireless microphone for your PC. Simple, lightweight, and free.
 
-![Meo Mic Banner](screenshots/banner.png)
+!(<img width="750" height="1286" alt="Screenshot 2025-12-17 145040" src="https://github.com/user-attachments/assets/39868812-3ca2-424f-ad2d-6cad1b73e4b9" />
+)
 
 ## Features
 
