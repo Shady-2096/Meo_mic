@@ -2,7 +2,7 @@
 
 Use your Android phone as a wireless microphone for your PC. Simple, lightweight, and free.
 
-!(<img width="400" height="750" alt="Screenshot 2025-12-17 145040" src="https://github.com/user-attachments/assets/29f88143-1b3b-415a-bfc8-e41f3878204b" />)
+<img width="400" height="750" alt="Screenshot 2025-12-17 145040" src="https://github.com/user-attachments/assets/29f88143-1b3b-415a-bfc8-e41f3878204b" />
 
 
 ## Features
@@ -27,7 +27,7 @@ Download `MeoMic.apk` from [Releases](../../releases)
 
 | Android App | 
 |-------------|
-| (<img src="https://github.com/user-attachments/assets/714a0e75-f48d-40b5-96be-c27ffd640eb1" width="400">)
+|<img src="https://github.com/user-attachments/assets/714a0e75-f48d-40b5-96be-c27ffd640eb1" width="400">
 ## Quick Start
 
 ### Step 1: Install VB-Cable (Windows)
