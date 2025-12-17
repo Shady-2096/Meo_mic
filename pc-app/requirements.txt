@@ -1,0 +1,14 @@
+# Audio
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# Network
+zeroconf>=0.131.0
+
+# UI - Modern
+customtkinter>=5.2.0
+Pillow>=10.0.0
+qrcode>=7.4.2
+
+# Cross-platform utilities
+psutil>=5.9.0

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary brand colors -->
+    <color name="primary">#6750A4</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="primary_container">#EADDFF</color>
+    <color name="on_primary_container">#21005D</color>
+
+    <!-- Secondary colors -->
+    <color name="secondary">#625B71</color>
+    <color name="on_secondary">#FFFFFF</color>
+    <color name="secondary_container">#E8DEF8</color>
+    <color name="on_secondary_container">#1D192B</color>
+
+    <!-- Status colors -->
+    <color name="connected_green">#4CAF50</color>
+    <color name="disconnected_red">#F44336</color>
+    <color name="searching_orange">#FF9800</color>
+    <color name="muted_gray">#9E9E9E</color>
+
+    <!-- Background colors -->
+    <color name="background">#FFFBFE</color>
+    <color name="surface">#FFFBFE</color>
+    <color name="surface_variant">#E7E0EC</color>
+
+    <!-- Dark theme -->
+    <color name="background_dark">#1C1B1F</color>
+    <color name="surface_dark">#1C1B1F</color>
+    <color name="surface_variant_dark">#49454F</color>
+</resources>
