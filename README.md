@@ -16,6 +16,9 @@ lightweight, and free.
 - **Volume control** - Adjust input volume on both phone and PC (0-200%)
 - **Mute button** - Quick mute/unmute from your phone
 - **Low latency** - Optimized UDP streaming with latency display
+- **Camera capture preview (in development)** - Service-owned CameraX capture,
+  lens switching, zoom, torch, and screen-off lifecycle groundwork. Video is not
+  sent to the desktop yet; follow `CAMERA_BUILD_PLAN.md` for the active gates.
 - **Modern UI** - Beautiful Catpuccin-themed dark interface
 - **Open source** - Free forever
 
@@ -159,6 +162,7 @@ Meo Mic writes into the virtual device; your call app reads out of it.
 | Mute Button (green/red) | Toggle microphone mute |
 | Volume Slider | Adjust input volume (0-200%) |
 | Scan QR Code | Pair by scanning the code on your computer |
+| Camera Button | Open the in-development local camera capture probe |
 | Disconnect Button | End the connection |
 
 ### Desktop App
@@ -236,6 +240,7 @@ Or from a terminal, with `ANDROID_HOME` pointing at your SDK:
 cd android-app
 ./gradlew assembleDebug
 ./gradlew testDebugUnitTest
+./gradlew lintDebug
 ```
 
 ## Technical Details
@@ -260,8 +265,9 @@ cd android-app
 
 ### Android
 - Android 7.0 (API 24) or higher
+- Android 10 or higher for the in-development camera path
 - Microphone permission
-- Camera permission, only if you scan the QR code
+- Camera permission if you scan a QR code or explicitly start camera capture
 - Same WiFi network as your computer
 
 ## Troubleshooting

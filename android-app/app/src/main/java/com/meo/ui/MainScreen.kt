@@ -35,7 +35,8 @@ import com.meo.ui.theme.*
 @Composable
 fun MainScreen(
     viewModel: MainViewModel,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    onOpenCamera: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val discoveredPCs by viewModel.discoveredPCs.collectAsState()
@@ -87,6 +88,17 @@ fun MainScreen(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(
+                        onClick = onOpenCamera,
+                        modifier = Modifier.background(Catpuccin.Surface0, RoundedCornerShape(12.dp))
+                    ) {
+                        Icon(
+                            Icons.Outlined.Videocam,
+                            contentDescription = "Open Meo Camera",
+                            tint = Catpuccin.Subtext1
+                        )
+                    }
+
                     if (uiState.connectionState != ConnectionState.Connected) {
                         IconButton(
                             onClick = scanQrCode,

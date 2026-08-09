@@ -1,6 +1,6 @@
 # Meo Camera — Product and Engineering Plan
 
-Status: proposed
+Status: in progress
 Scope: Android sender + macOS receiver/virtual camera + Windows receiver/virtual camera
 License: MIT
 Maintainer model: single maintainer
@@ -25,6 +25,33 @@ Planning date: 2026-07-26
 > [`adr/0003`](adr/0003-windows-registration-scope.md) decide nothing yet.
 >
 > Read [`adr/README.md`](adr/README.md) before trusting any section below.
+
+### Android capture progress — 2026-08-09
+
+The first Android camera source slice now exists under
+`android-app/app/src/main/java/com/meo/camera/`:
+
+- A separate `camera` foreground service owns CameraX capture, the partial wake
+  lock, and deterministic stop cleanup. The Activity only attaches an optional
+  preview surface, so leaving the screen does not own or end capture.
+- The capture probe requests 1280x720, keeps only the latest analysis frame,
+  reports the applied frame size and rolling FPS, and supports front/back lens,
+  zoom, and torch where the device reports them.
+- The existing microphone UI and UDP service remain separate. The launcher is
+  now **Meo**, with a camera entry point from the Mic screen.
+- CameraX is pinned to `1.5.3`: `1.6.x` requires Kotlin 2.1 metadata and would
+  turn this narrow probe into a Compose/Kotlin toolchain migration.
+- `testDebugUnitTest`, `assembleDebug`, and `lintDebug` pass locally. No Android
+  device is attached to the development host, so real sensor output, lens
+  switching, display-off continuation, OEM battery behavior, and thermal/FPS
+  claims remain unverified.
+
+This is capture infrastructure, not the Milestone 0 media proof. It does not yet
+contain the TLS listener or WebRTC sender, and it does not send frames to the
+Windows frame bridge. ADR 0008 now records the measured Android WebRTC candidate;
+the next Android gate is integrating it behind the capture service, choosing the
+CameraX-to-WebRTC adapter from measured CPU/thermal results, then adding the local
+signaling listener and 720p30 desktop preview path.
 
 ## 0. Constraints that shape every decision below
 

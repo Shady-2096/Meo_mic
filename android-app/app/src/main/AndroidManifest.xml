@@ -19,6 +19,8 @@
     <!-- Keep running in background while streaming -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Wake lock to prevent CPU sleep during streaming -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -46,6 +48,13 @@
         <service
             android:name=".service.AudioStreamingService"
             android:foregroundServiceType="microphone"
+            android:exported="false" />
+
+        <!-- Camera capture is kept separate from the legacy UDP microphone
+             service because camera video will use the Meo Camera WebRTC path. -->
+        <service
+            android:name=".camera.service.CameraStreamingService"
+            android:foregroundServiceType="camera"
             android:exported="false" />
 
     </application>

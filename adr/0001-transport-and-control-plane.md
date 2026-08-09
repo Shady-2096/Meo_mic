@@ -55,8 +55,9 @@ What the choice has to answer:
   project.
 - How it gets updated, and who notices when it needs to be.
 
-This cannot be settled from the development machine — it needs the Windows
-receiver to exist far enough to link against something.
+[ADR 0008](0008-android-webrtc-distribution.md) settles the Android feasibility
+candidate from a downloaded and inspected artifact. The Windows half remains
+open and needs the receiver to exist far enough to link against something.
 
 ## Consequences
 

@@ -24,15 +24,17 @@ they are open questions with the cost of leaving them open written down.
 | [0004](0004-macos-distribution-reality.md) | How macOS Camera can be distributed with no paid account | **Accepted** — measured 2026-08-07 |
 | [0005](0005-first-desktop-platform.md) | Which desktop platform finishes first | **Accepted** — follows from 0004 |
 | [0006](0006-windows-frame-bridge.md) | Windows frame bridge: shared memory, one writer, N readers | **Accepted** (design) — core measured on macOS; one sub-question open |
+| [0007](0007-windows-one-app.md) | One Windows app for mic and camera, engine loaded on demand | **Accepted** (design) — rests on an unmeasured size premise, named there |
+| [0008](0008-android-webrtc-distribution.md) | Android WebRTC binary, provenance, notices, and update policy | **Accepted for Android spike** — Windows distribution remains open |
 
 ## Still owed before the Milestone 0 gate closes
 
 §12 names these and none of them have been started, because each depends on a
 probe that has not run:
 
-- **WebRTC distribution and license.** Which prebuilt binary, from where,
-  under what license, updated how. §5.2 requires the provenance recorded
-  before anything ships.
+- **Windows WebRTC distribution and license.** ADR 0008 settles the Android
+  spike candidate from a measured artifact. The Windows x64 binary, provenance,
+  license bundle, ABI boundary, and update policy remain open.
 - **Recording architecture.** Single shared encoder or a device-gated second
   one (§7.4). Depends on the dual-encoder spike, which needs real phones.
 - **macOS frame bridge.** Exact IOSurface pool shape and wire layout (§8.3).

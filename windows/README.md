@@ -21,8 +21,13 @@ Unlike `probes/`, this is product code.
 - **The COM media source.** `MFCreateVirtualCamera` (§9.4) and the
   `IMFMediaSource` / `IMFMediaStream2` plumbing around `CameraFrameSource`.
   Nothing blocks it.
-- **`MeoCameraHost/`.** The receiver, decode, and native UI (§9.3). Milestone 4
-  work; the bridge is the side of it that already exists.
+- **`MeoApp/` and `MeoCameraEngine/`.** The receiver, decode, and native UI
+  (§9.3). Milestone 4 work; the bridge is the side of it that already exists.
+  [ADR 0007](../adr/0007-windows-one-app.md) makes this one app that also
+  contains the mic, with the camera engine — WebRTC and decode — behind a DLL
+  loaded only when the camera is switched on. Until the mic is ported into it,
+  `pc-app/` ships alongside; that is temporary and scheduled, not the end
+  state.
 - **`MeoVirtualCameraDS/`.** Only if [ADR 0002](../adr/0002-directshow-scope.md)
   says DirectShow is mandatory. That is still unmeasured.
 - **`MeoInstaller/`.** Waits on [ADR 0003](../adr/0003-windows-registration-scope.md),

@@ -15,8 +15,9 @@ Ships inside the APK.
 | Component | Version | License |
 |---|---|---|
 | AndroidX Core KTX | 1.12.0 | Apache-2.0 |
-| AndroidX Lifecycle (runtime, viewmodel-compose, runtime-compose) | 2.6.2 | Apache-2.0 |
+| AndroidX Lifecycle (runtime, service, viewmodel-compose, runtime-compose) | 2.6.2 | Apache-2.0 |
 | AndroidX Activity Compose | 1.8.1 | Apache-2.0 |
+| AndroidX CameraX (Core, Camera2, Lifecycle, View) | 1.5.3 | Apache-2.0 |
 | Jetpack Compose (BOM) | 2024.02.00 | Apache-2.0 |
 | Compose UI, UI Graphics, UI Tooling Preview | via BOM | Apache-2.0 |
 | Compose Material 3 | via BOM | Apache-2.0 |
@@ -93,10 +94,11 @@ Not shipped in any artifact; listed for reproducibility.
 ## Not yet present
 
 Meo Camera will add a WebRTC distribution (plan §5.2) and `nlohmann/json`
-(§5.3). Neither has landed. Per §16 and the Milestone 0 gate, the exact WebRTC
-build, its provenance, and its license must be recorded in an ADR and added to
-this file **before** any binary ships containing it. Google's WebRTC is
-BSD-3-Clause; a GPL fork must not be substituted.
+(§5.3). Neither is linked yet. [ADR 0008](adr/0008-android-webrtc-distribution.md)
+records the measured Android spike candidate, checksum, source commit, and the
+fact that its AAR omits required notices. When it lands, its generated notice
+set must be versioned under `licenses/` and included in release materials. The
+Windows distribution remains open. A GPL fork must not be substituted.
 
 ## Corrections
 

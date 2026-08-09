@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.meo.audio.AudioRecorder
@@ -183,7 +184,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     putExtra(AudioStreamingService.EXTRA_PORT, port)
                 }
 
-                context.startForegroundService(intent)
+                ContextCompat.startForegroundService(context, intent)
                 context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
                 // Connection state will be updated by isConnected flow
             } catch (e: Exception) {

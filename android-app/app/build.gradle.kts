@@ -84,6 +84,17 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
+    // CameraX. Capture is owned by the camera foreground service; the Compose
+    // screen only supplies an optional preview surface.
+    // 1.6.x is compiled with Kotlin 2.1 metadata and would force an unrelated
+    // Compose/Kotlin migration. 1.5.3 is the maintained compatible stable line.
+    val cameraXVersion = "1.5.3"
+    implementation("androidx.camera:camera-core:$cameraXVersion")
+    implementation("androidx.camera:camera-camera2:$cameraXVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
+    implementation("androidx.camera:camera-view:$cameraXVersion")
+    implementation("androidx.lifecycle:lifecycle-service:2.6.2")
+
     // Network Service Discovery (NSD) - built into Android, no extra dep needed
 
     // QR scanning. ZXing is self-contained: no Play Services, so the APK works

@@ -1,5 +1,6 @@
 package com.meo.audio
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -72,6 +73,7 @@ class AudioRecorder(private val context: Context) {
      * Starts recording and calls onAudioData with PCM audio chunks.
      * This is a suspend function that runs until stopRecording() is called.
      */
+    @SuppressLint("MissingPermission") // hasPermission() is checked immediately below.
     suspend fun startRecording(onAudioData: (ByteArray, Int) -> Unit) = withContext(Dispatchers.IO) {
         if (!hasPermission()) {
             throw SecurityException("Microphone permission not granted")
