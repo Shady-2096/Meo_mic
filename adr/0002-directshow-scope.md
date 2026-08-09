@@ -25,8 +25,10 @@ difference between two Windows backends and one, plus a hardened test regime.
 
 ## Why this is still open
 
-The probe that answers it is written and committed but has not been run. It
-needs a Windows 11 machine, which the development machine is not.
+The registration and frame-server portions of the probe were run on Windows
+11 on 2026-08-09, but the required application matrix has not been measured.
+The partial results are recorded in
+[`RESULTS-2026-08-09.md`](../probes/windows-virtual-camera/RESULTS-2026-08-09.md).
 
 Answering this by reading documentation is explicitly not good enough. §9.1
 requires "a recorded observation of which API each app uses on each OS",

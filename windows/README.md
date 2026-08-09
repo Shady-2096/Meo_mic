@@ -14,13 +14,12 @@ Unlike `probes/`, this is product code.
 | `MeoFrameBridge/` | Complete and tested. The shared-memory hand-off from the host to every camera backend ([ADR 0006](../adr/0006-windows-frame-bridge.md)). |
 | `MeoVirtualCameraMF/src/Slate.*` | Complete and tested. Every non-live state the camera draws for itself (§8.4). |
 | `MeoVirtualCameraMF/src/FrameSource.*` | Complete and tested. The live-frame-or-slate decision both backends share. |
-| `Tests/` | 3 suites, run on Windows and on macOS. |
+| `MeoVirtualCameraMF/src/VirtualCamera.*` | Implemented and tested through the real Windows frame server. The `IMFActivate` / `IMFMediaSourceEx` / `IMFMediaStream2` COM source publishes one fixed 1280x720 NV12 type and fills allocator-backed frames through `CameraFrameSource`. |
+| `MeoVirtualCameraMF/src/VirtualCameraManager.cpp` | Implements system-lifetime, current-user `MFCreateVirtualCamera` install/remove and the actionable camera-privacy error. |
+| `Tests/` | 4 suites on Windows (3 portable), including direct activation of the real COM DLL, a complete no-host slate sample, and an opt-in frame-server test for the installed camera. |
 
 ## What is not here yet
 
-- **The COM media source.** `MFCreateVirtualCamera` (§9.4) and the
-  `IMFMediaSource` / `IMFMediaStream2` plumbing around `CameraFrameSource`.
-  Nothing blocks it.
 - **`MeoApp/` and `MeoCameraEngine/`.** The receiver, decode, and native UI
   (§9.3). Milestone 4 work; the bridge is the side of it that already exists.
   [ADR 0007](../adr/0007-windows-one-app.md) makes this one app that also
@@ -30,8 +29,26 @@ Unlike `probes/`, this is product code.
   state.
 - **`MeoVirtualCameraDS/`.** Only if [ADR 0002](../adr/0002-directshow-scope.md)
   says DirectShow is mandatory. That is still unmeasured.
-- **`MeoInstaller/`.** Waits on [ADR 0003](../adr/0003-windows-registration-scope.md),
-  which decides whether a one-time UAC prompt is part of install.
+- **`MeoInstaller/`.** [ADR 0003](../adr/0003-windows-registration-scope.md)
+  measured that the MF COM source requires HKLM, so the installer needs one
+  up-front UAC prompt. Runtime camera use must remain non-elevated.
+
+## Measured Windows integration result
+
+On 2026-08-09 the product COM DLL built with MSVC `/W4 /WX`, installed as the
+system-lifetime current-user `Meo Camera`, and was opened through the real
+Windows frame server. The bounded `--frame-server` test activated the
+enumerated proxy, selected the fixed NV12 type, and received one complete
+1,382,400-byte 1280x720 slate sample in under one second with no host running.
+
+The initial frame-server attempt exposed an important clock-domain failure:
+zero-based sample timestamps were stale relative to the Media Foundation
+system clock, so the frame server discarded every sample and requested another
+without bound. Frames now use `MFGetSystemTime()`. The source also implements
+the mandatory legacy sensor profile, provided-allocator contract, direct
+`IMFMediaStream2` running transition, and Microsoft-compatible activation
+lifetime semantics. Application enumeration remains the separate ADR 0002
+matrix; the Media Foundation system-camera path itself is measured working.
 
 ## Building and testing
 
@@ -51,6 +68,13 @@ job is to survive hostile input:
 clang++ -std=c++17 -O1 -g -fsanitize=address,undefined -I MeoFrameBridge/include -I MeoFrameBridge/src -I MeoVirtualCameraMF/src -o /tmp/fb MeoFrameBridge/src/FrameBridge.cpp MeoFrameBridge/src/Mapping_posix.cpp MeoVirtualCameraMF/src/Slate.cpp MeoVirtualCameraMF/src/FrameSource.cpp Tests/FrameBridgeTests.cpp && /tmp/fb
 ```
 
+After installing the COM source and virtual-camera device, the Windows-only
+system path can be checked explicitly with:
+
+```powershell
+.\build\VirtualCameraSourceTests.exe --frame-server
+```
+
 ## Why the core builds on macOS
 
 Not portability. The product is Windows-only until ADR 0004 unblocks.
@@ -62,7 +86,8 @@ race-tested on the development machine instead of only on a Windows box —
 `Mapping_posix.cpp` exists for that and ships nowhere.
 
 Only `Mapping_win32.cpp` is platform code, and it is a thin shim over
-`CreateFileMappingW` / `MapViewOfFile`. **It has not been compiled or run.**
+`CreateFileMappingW` / `MapViewOfFile`. It was compiled and exercised by the
+full bridge, fuzz, race, and frame-source suites on Windows on 2026-08-09.
 
 ## What the tests actually assert
 
@@ -84,14 +109,10 @@ not be worth the lines:
 - **Stride padding is never touched**, in both planes. Writing into it is what
   produces the skewed diagonal picture the probe README warns about.
 
-## The one thing to measure on Windows
+## Cross-session mapping result
 
-ADR 0006 has an open sub-question: whether the process hosting Meo's media
-source can open a `Local\`-namespace section created by the user's host
-process, or whether the frame server runs in another session and needs
-`Global\` — which would push a UAC prompt into the runtime path.
-
-The existing `probes/windows-virtual-camera` already loads a Meo DLL inside the
-frame server, so logging `GetCurrentProcessId` and `ProcessIdToSessionId` from
-its `DllMain` and reading it in DebugView answers it in the same session that
-answers ADR 0002 and ADR 0003.
+The probe measured the host in session 1 and the frame server in session 0, so
+the current `Local\` bridge cannot connect them. ADR 0006 records the remaining
+standard-token `Global\`-creation experiment and broker alternative. Until it
+is resolved, a working MF camera can always draw its own slate but cannot read
+live phone frames from the user-hosted bridge.

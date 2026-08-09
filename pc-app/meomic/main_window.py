@@ -8,10 +8,16 @@ Two shapes. Waiting: the address sits in a field you can copy or scan, and
 there is no waveform, because a meter with nothing to meter is noise. Live: the
 waveform replaces it. The audio route is not diagrammed anywhere - it only
 matters when it is broken, and then it is one line under the card.
+
+The window is exactly as tall as whichever shape is on screen. It measures
+itself rather than carrying a table of hard-coded heights, because every time
+that table drifted from the layout the result was a strip of dead grey above
+the footer.
 """
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 from typing import Callable, List, Optional
@@ -19,17 +25,16 @@ from typing import Callable, List, Optional
 import customtkinter as ctk
 
 from . import theme as t
-from .widgets import StatusGlyph, Waveform, card, hairline, separator
+from .widgets import StatusGlyph, Waveform, card, hairline, micro_label, separator
 
 # Follows the Windows light/dark setting, the same way the Mac app follows the
 # system appearance. Read once at startup; switching themes needs a restart.
 ctk.set_appearance_mode("System")
 
-WIDTH = 400
+WIDTH = 420
 CONTENT = WIDTH - 2 * t.PAD
-HEIGHT_WAITING = 470
-HEIGHT_LIVE = 440
-QR_EXTRA = 190   # the window grows to make room rather than clipping
+MIN_HEIGHT = 300
+ROW_H = 44          # a settings row, tall enough to hit without aiming
 
 
 class MainWindow:
@@ -53,6 +58,7 @@ class MainWindow:
         # Devices
         self.devices: List[dict] = []
         self.selected_device: Optional[int] = None
+        self._device_ids: dict = {}     # menu label -> device id
         self._pending_devices: Optional[tuple] = None
         self._pending_connection_info: Optional[tuple] = None
 
@@ -64,6 +70,7 @@ class MainWindow:
         self.voice_block: Optional[ctk.CTkFrame] = None
         self.pairing_card: Optional[ctk.CTkFrame] = None
         self.address_label: Optional[ctk.CTkLabel] = None
+        self.port_label: Optional[ctk.CTkLabel] = None
         self.device_menu: Optional[ctk.CTkOptionMenu] = None
         self.device_note: Optional[ctk.CTkLabel] = None
         self.copy_btn: Optional[ctk.CTkButton] = None
@@ -74,6 +81,7 @@ class MainWindow:
         self._qr_frame: Optional[ctk.CTkFrame] = None
         self._qr_visible = False
         self._qr_image = None
+        self._height: Optional[int] = None
         # Which of the two shapes is on screen. Tracked explicitly rather than
         # read back with winfo_ismapped(), which reports False until the
         # geometry manager has run - so at startup both would show.
@@ -86,15 +94,10 @@ class MainWindow:
     def create_window(self):
         self.root = ctk.CTk(fg_color=t.WINDOW)
         self.root.title("Meo Mic")
-        self.root.geometry(f"{WIDTH}x{HEIGHT_WAITING}")
+        self.root.geometry(f"{WIDTH}x{MIN_HEIGHT}")
         self.root.resizable(False, False)
 
         self._set_icon()
-
-        self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() - WIDTH) // 2
-        y = (self.root.winfo_screenheight() - HEIGHT_WAITING) // 2
-        self.root.geometry(f"{WIDTH}x{HEIGHT_WAITING}+{x}+{y}")
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -107,6 +110,14 @@ class MainWindow:
         self.voice.start()
         self._apply_pending_data()
         self._do_update_status(self.is_connected, self.client_ip)
+        self._centre()
+
+    def _centre(self):
+        height = self._content_height()
+        scale = self._scaling()
+        x = int((self.root.winfo_screenwidth() / scale - WIDTH) // 2)
+        y = int((self.root.winfo_screenheight() / scale - height) // 2)
+        self.root.geometry(f"{WIDTH}x{height}+{max(0, x)}+{max(0, y)}")
 
     # -- status ---------------------------------------------------------- #
 
@@ -115,7 +126,7 @@ class MainWindow:
         block.pack(fill="x", padx=t.PAD, pady=(t.XL, 0))
 
         self.status_dot = StatusGlyph(block)
-        self.status_dot.pack(side="left", padx=(0, t.MD))
+        self.status_dot.pack(side="left", padx=(0, t.MD + 2))
 
         text_col = ctk.CTkFrame(block, fg_color="transparent")
         text_col.pack(side="left", fill="x", expand=True)
@@ -123,7 +134,7 @@ class MainWindow:
         self.status_headline = ctk.CTkLabel(
             text_col,
             text="Waiting for your phone",
-            font=t.font("status", 18, "bold"),
+            font=t.font("title", 20, "bold"),
             text_color=t.TEXT,
             anchor="w",
         )
@@ -136,9 +147,9 @@ class MainWindow:
             text_color=t.TEXT_SECONDARY,
             anchor="w",
             justify="left",
-            wraplength=CONTENT - StatusGlyph.SIZE - t.MD,
+            wraplength=CONTENT - StatusGlyph.SIZE - t.MD - 2,
         )
-        self.status_detail.pack(fill="x", pady=(1, 0))
+        self.status_detail.pack(fill="x", pady=(2, 0))
 
     # -- waveform -------------------------------------------------------- #
 
@@ -160,10 +171,15 @@ class MainWindow:
         field.pack(fill="x")
 
         inner = ctk.CTkFrame(field, fg_color="transparent")
-        inner.pack(fill="x", padx=t.MD, pady=t.SM)
+        inner.pack(fill="x", padx=t.MD + 2, pady=t.MD)
+
+        micro_label(inner, "On this network").pack(fill="x", pady=(0, 5))
+
+        line = ctk.CTkFrame(inner, fg_color="transparent")
+        line.pack(fill="x")
 
         self.address_label = ctk.CTkLabel(
-            inner,
+            line,
             text="Looking for your network...",
             font=t.font("address", 17, "bold"),
             text_color=t.TEXT,
@@ -171,19 +187,31 @@ class MainWindow:
         )
         self.address_label.pack(side="left")
 
-        self.qr_btn = self._icon_button(inner, "QR", self._toggle_qr)
+        # The port is the same every time and nobody reads it twice; it is kept
+        # because you have to type it, and dimmed because it is not the part
+        # you are looking for.
+        self.port_label = ctk.CTkLabel(
+            line,
+            text="",
+            font=t.font("address", 17),
+            text_color=t.TEXT_TERTIARY,
+            anchor="w",
+        )
+        self.port_label.pack(side="left")
+
+        self.qr_btn = self._quiet_button(line, "QR", self._toggle_qr, width=44)
         self.qr_btn.pack(side="right")
 
-        self.copy_btn = self._icon_button(inner, "Copy", self._copy_ip)
-        self.copy_btn.pack(side="right", padx=(0, t.XS))
+        self.copy_btn = self._tinted_button(line, "Copy", self._copy_ip, width=62)
+        self.copy_btn.pack(side="right", padx=(0, t.SM - 2))
 
         ctk.CTkLabel(
             self.pairing_card,
             text="Or tap Search for PC on your phone.",
-            font=t.font("label", 11),
+            font=t.font("label", 12),
             text_color=t.TEXT_TERTIARY,
             anchor="w",
-        ).pack(fill="x", pady=(t.SM, 0))
+        ).pack(fill="x", padx=t.XS, pady=(t.SM + 2, 0))
 
         self._qr_frame = ctk.CTkFrame(self.pairing_card, fg_color="transparent")
 
@@ -191,13 +219,12 @@ class MainWindow:
 
     def _build_settings(self):
         block = ctk.CTkFrame(self.root, fg_color="transparent")
-        block.pack(fill="x", padx=t.PAD, pady=(t.LG, 0))
+        block.pack(fill="x", padx=t.PAD, pady=(t.GUTTER, 0))
 
         group = card(block)
         group.pack(fill="x")
 
-        output_row = ctk.CTkFrame(group, fg_color="transparent")
-        output_row.pack(fill="x", padx=t.MD, pady=(t.SM + 2, t.SM))
+        output_row = self._settings_row(group)
 
         ctk.CTkLabel(
             output_row,
@@ -210,8 +237,8 @@ class MainWindow:
         self.device_menu = ctk.CTkOptionMenu(
             output_row,
             values=["No devices found"],
-            width=200,
-            height=28,
+            width=214,
+            height=30,
             corner_radius=t.RADIUS,
             font=t.font("body", 12),
             dropdown_font=t.font("body", 12),
@@ -220,16 +247,16 @@ class MainWindow:
             button_hover_color=t.CONTROL_HOVER,
             text_color=t.TEXT,
             dropdown_fg_color=t.CARD,
-            dropdown_hover_color=t.CARD_HOVER,
+            dropdown_hover_color=t.ACCENT_SOFT,
             dropdown_text_color=t.TEXT,
+            anchor="w",
             command=self._on_device_selected,
         )
         self.device_menu.pack(side="right")
 
-        separator(group).pack(fill="x", padx=t.MD)
+        separator(group).pack(fill="x", padx=t.MD + 2)
 
-        volume_row = ctk.CTkFrame(group, fg_color="transparent")
-        volume_row.pack(fill="x", padx=t.MD, pady=(t.SM, t.SM + 2))
+        volume_row = self._settings_row(group)
 
         ctk.CTkLabel(
             volume_row,
@@ -242,9 +269,9 @@ class MainWindow:
         self.volume_label = ctk.CTkLabel(
             volume_row,
             text="100%",
-            font=t.font("label", 11),
+            font=t.font("label", 12),
             text_color=t.TEXT_SECONDARY,
-            width=38,
+            width=40,
             anchor="e",
         )
         self.volume_label.pack(side="right")
@@ -254,10 +281,14 @@ class MainWindow:
             from_=0,
             to=200,
             number_of_steps=200,
-            width=160,
+            width=166,
             height=16,
-            corner_radius=3,
-            fg_color=t.CONTROL_HOVER,
+            corner_radius=8,
+            border_width=5,          # thins the groove without thinning the knob
+            button_length=0,
+            button_corner_radius=8,
+            fg_color=t.TRACK,
+            border_color=t.CARD,
             progress_color=t.ACCENT,
             button_color=t.ACCENT,
             button_hover_color=t.ACCENT_HOVER,
@@ -269,36 +300,69 @@ class MainWindow:
         self.device_note = ctk.CTkLabel(
             block,
             text="",
-            font=t.font("label", 11),
+            font=t.font("label", 12),
             text_color=t.TEXT_TERTIARY,
             anchor="w",
             justify="left",
-            wraplength=CONTENT,
+            wraplength=CONTENT - t.SM,
         )
-        self.device_note.pack(fill="x", pady=(t.SM, 0))
+        self.device_note.pack(fill="x", padx=t.XS, pady=(t.SM + 2, 0))
+
+    def _settings_row(self, parent) -> ctk.CTkFrame:
+        """A fixed-height row inside the grouped card.
+
+        Fixed, so the two rows are the same height whatever ends up in them -
+        a dropdown and a slider have no reason to agree on their own.
+        """
+        row = ctk.CTkFrame(parent, fg_color="transparent", height=ROW_H)
+        row.pack(fill="x", padx=t.MD + 2)
+        row.pack_propagate(False)
+        return row
 
     # -- footer ---------------------------------------------------------- #
 
     def _build_footer(self):
         footer = ctk.CTkFrame(self.root, fg_color="transparent")
-        footer.pack(side="bottom", fill="x", padx=t.PAD, pady=(0, t.LG))
+        footer.pack(side="bottom", fill="x", padx=t.PAD - t.SM, pady=(t.MD, t.MD + 2))
 
         self._link_button(footer, "Audio setup", self._on_show_setup).pack(side="left")
         self._link_button(footer, "Quit", self._on_close).pack(side="right")
 
-        hairline(self.root).pack(side="bottom", fill="x", padx=t.PAD, pady=(0, t.MD))
+        # The rule floats a clear gap below the last block, so it reads as the
+        # edge of the window's chrome rather than as another card border.
+        hairline(self.root, t.SEPARATOR).pack(
+            side="bottom", fill="x", padx=t.PAD, pady=(t.XL, 0)
+        )
 
-    def _icon_button(self, parent, text: str, command) -> ctk.CTkButton:
-        """A small, quiet action beside the address field."""
+    def _tinted_button(self, parent, text: str, command, width: int = 62) -> ctk.CTkButton:
+        """The one action in the window worth pointing at."""
         return ctk.CTkButton(
             parent,
             text=text,
-            width=52,
-            height=26,
+            width=width,
+            height=30,
             corner_radius=t.RADIUS,
-            font=t.font("label", 11),
-            fg_color=t.CONTROL,
+            font=t.font("label", 12),
+            fg_color=t.ACCENT_SOFT,
+            hover_color=t.ACCENT_SOFT_HOVER,
+            text_color=t.ACCENT,
+            command=command,
+        )
+
+    def _quiet_button(self, parent, text: str, command, width: int = 52) -> ctk.CTkButton:
+        """A secondary action: an outline, so it reads as a button without
+        competing with the tinted one beside it."""
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            width=width,
+            height=30,
+            corner_radius=t.RADIUS,
+            font=t.font("label", 12),
+            fg_color="transparent",
             hover_color=t.CONTROL_HOVER,
+            border_width=1,
+            border_color=t.BORDER,
             text_color=t.TEXT_SECONDARY,
             command=command,
         )
@@ -308,9 +372,9 @@ class MainWindow:
             parent,
             text=text,
             width=1,
-            height=22,
-            corner_radius=t.RADIUS,
-            font=t.font("label", 11),
+            height=28,
+            corner_radius=t.RADIUS_SM,
+            font=t.font("label", 12),
             fg_color="transparent",
             hover_color=t.CARD_HOVER,
             text_color=t.TEXT_SECONDARY,
@@ -321,14 +385,34 @@ class MainWindow:
     # Window shape
     # ------------------------------------------------------------------ #
 
+    def _scaling(self) -> float:
+        """The display scale CustomTkinter is drawing at.
+
+        Everything measured off a Tk widget comes back in real pixels, while
+        ``geometry()`` on a CTk window takes the unscaled kind and multiplies
+        it back up. Mixing the two on a 200% display asks for a window twice
+        the height of the screen, which Windows then silently clamps - which is
+        exactly the dead grey strip this measuring was meant to remove.
+        """
+        try:
+            return ctk.ScalingTracker.get_window_scaling(self.root) or 1.0
+        except Exception:
+            return 1.0
+
+    def _content_height(self) -> int:
+        """How tall the window has to be for everything packed into it."""
+        self.root.update_idletasks()
+        wanted = math.ceil(self.root.winfo_reqheight() / self._scaling())
+        return max(MIN_HEIGHT, wanted)
+
     def _resize_window(self):
         """The window is as tall as the state needs, and no taller."""
         if not self.root:
             return
-        height = HEIGHT_LIVE if self.is_connected else HEIGHT_WAITING
-        if self._qr_visible and not self.is_connected:
-            height += QR_EXTRA
-        self.root.geometry(f"{WIDTH}x{height}")
+        height = self._content_height()
+        if height != self._height:
+            self._height = height
+            self.root.geometry(f"{WIDTH}x{height}")
 
     # ------------------------------------------------------------------ #
     # QR
@@ -351,17 +435,17 @@ class MainWindow:
             )
             return
 
-        holder = ctk.CTkFrame(self._qr_frame, fg_color="#FFFFFF", corner_radius=t.RADIUS_LG)
+        holder = ctk.CTkFrame(self._qr_frame, fg_color="#FFFFFF", corner_radius=t.RADIUS)
         holder.pack(anchor="w")
-        ctk.CTkLabel(holder, image=image, text="").pack(padx=10, pady=10)
+        ctk.CTkLabel(holder, image=image, text="").pack(padx=12, pady=12)
 
         ctk.CTkLabel(
             self._qr_frame,
             text="Tap Scan QR Code on your phone.",
-            font=t.font("label", 11),
+            font=t.font("label", 12),
             text_color=t.TEXT_TERTIARY,
             anchor="w",
-        ).pack(fill="x", pady=(t.SM, 0))
+        ).pack(fill="x", padx=t.XS, pady=(t.SM, 0))
 
         self._qr_frame.pack(fill="x", pady=(t.MD, 0))
         self.qr_btn.configure(text="Hide")
@@ -403,13 +487,14 @@ class MainWindow:
             self.root.after(1400, lambda: self.copy_btn.configure(text="Copy"))
 
     def _on_device_selected(self, choice: str):
-        if self.on_device_change and self.devices:
-            for dev in self.devices:
-                if self._device_label(dev) == choice:
-                    self.selected_device = dev["id"]
-                    self.on_device_change(dev["id"])
-                    self._update_device_note()
-                    break
+        device_id = self._device_ids.get(choice)
+        if device_id is None:
+            return
+        self.selected_device = device_id
+        self._update_device_note()
+        self._update_status_text()
+        if self.on_device_change:
+            self.on_device_change(device_id)
 
     def _on_volume_changed(self, value: float):
         if self.volume_label:
@@ -421,6 +506,8 @@ class MainWindow:
         self.running = False
         if self.voice:
             self.voice.stop()
+        if self.status_dot:
+            self.status_dot.stop()
         if self.on_quit:
             self.on_quit()
         if self.root:
@@ -476,12 +563,28 @@ class MainWindow:
         self.local_ip = ip
         self.port = port
         if self.address_label:
-            self.address_label.configure(text=f"{ip}:{port}")
+            self.address_label.configure(text=ip)
+        if self.port_label:
+            self.port_label.configure(text=f":{port}")
         self._update_status_text()
+        self._resize_window()
+
+    # -- device names ---------------------------------------------------- #
 
     @staticmethod
-    def _device_label(dev: dict) -> str:
-        return dev["name"]
+    def _short_name(name: str) -> str:
+        """The part of a device name a person would say out loud.
+
+        Windows device names carry the driver's own parenthetical - "CABLE In
+        16ch (VB-Audio Virtual Cable)" - which is the half that never fits and
+        never helps. Dropping it is the difference between a row that reads and
+        a row that gets sliced off mid-word.
+        """
+        head = name.split("(")[0].strip(" -") or name.strip()
+        return head if len(head) <= 30 else head[:29].rstrip() + "…"
+
+    def _device_label(self, dev: dict) -> str:
+        return self._short_name(dev["name"])
 
     def set_devices(self, devices: List[dict], selected: Optional[int] = None):
         self.devices = devices
@@ -497,10 +600,18 @@ class MainWindow:
         if not self.device_menu:
             return
 
-        names, selected_name = [], None
+        # Shortening names can collide - two "Speakers" from different drivers
+        # is normal on Windows - so the menu keeps its own label-to-id map and
+        # numbers any duplicates rather than silently routing to the first one.
+        names, selected_name, seen = [], None, {}
+        self._device_ids = {}
         for dev in devices:
             label = self._device_label(dev)
+            seen[label] = seen.get(label, 0) + 1
+            if seen[label] > 1:
+                label = f"{label} ({seen[label]})"
             names.append(label)
+            self._device_ids[label] = dev["id"]
             if dev["id"] == selected:
                 selected_name = label
 
@@ -513,6 +624,7 @@ class MainWindow:
 
         self._update_device_note()
         self._update_status_text()
+        self._resize_window()
 
     def _current_device(self) -> Optional[dict]:
         return next((d for d in self.devices if d["id"] == self.selected_device), None)
@@ -534,12 +646,14 @@ class MainWindow:
             )
         elif current["is_virtual"]:
             self.device_note.configure(
-                text=f"Pick {current['name']} as your microphone in Discord, Zoom or Meet.",
+                text=f"Pick {self._short_name(current['name'])} as your microphone "
+                     f"in Discord, Zoom or Meet.",
                 text_color=t.TEXT_TERTIARY,
             )
         else:
             self.device_note.configure(
-                text=f"{current['name']} plays out loud - apps can't use it as a mic.",
+                text=f"{self._short_name(current['name'])} plays out loud - "
+                     f"apps can't use it as a mic.",
                 text_color=t.WARN,
             )
 
@@ -584,7 +698,7 @@ class MainWindow:
             device = self._current_device()
             where = self.client_ip or "your phone"
             if device and device["is_virtual"]:
-                detail = f"From {where} · {device['name']}"
+                detail = f"From {where} · {self._short_name(device['name'])}"
             else:
                 detail = f"From {where}"
             self.status_detail.configure(text=detail, text_color=t.TEXT_SECONDARY)
@@ -598,8 +712,6 @@ class MainWindow:
 
     def update_level(self, level: float):
         """Legacy 0..1 RMS input, kept for callers that still use it."""
-        import math
-
         self.audio_level = level
         db = 20.0 * math.log10(max(level * 10000.0 / 32768.0, 1e-6))
         self.update_level_db(db)
@@ -618,6 +730,8 @@ class MainWindow:
         self.running = False
         if self.voice:
             self.voice.stop()
+        if self.status_dot:
+            self.status_dot.stop()
         if self.root:
             try:
                 self.root.quit()

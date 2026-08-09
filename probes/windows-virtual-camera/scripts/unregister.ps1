@@ -19,7 +19,8 @@ if (Test-Path $host_exe) {
 
 if (Test-Path $dll) {
   Write-Host "Unregistering from HKCU..." -ForegroundColor Cyan
-  regsvr32.exe /n /u /i:user /s $dll
+  Start-Process -FilePath "regsvr32.exe" `
+    -ArgumentList "/n /u /i:user /s `"$dll`"" -Wait
 }
 
 Remove-Item -Path "HKCU:\Software\Classes\CLSID\$clsid" -Recurse -Force `
@@ -32,7 +33,10 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] `
 if (Test-Path "HKLM:\Software\Classes\CLSID\$clsid") {
   if ($isAdmin) {
     Write-Host "Unregistering from HKLM..." -ForegroundColor Cyan
-    if (Test-Path $dll) { regsvr32.exe /u /s $dll }
+    if (Test-Path $dll) {
+      Start-Process -FilePath "regsvr32.exe" `
+        -ArgumentList "/u /s `"$dll`"" -Wait
+    }
     Remove-Item -Path "HKLM:\Software\Classes\CLSID\$clsid" -Recurse -Force `
       -ErrorAction SilentlyContinue
   } else {

@@ -2,11 +2,9 @@
 
 #include "Mapping.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 
-#include <string>
+#include <array>
 
 namespace meo::detail {
 namespace {
@@ -32,14 +30,12 @@ namespace {
 // DllMain answers it in the same run that answers ADR 0002 and 0003.
 constexpr char kDefaultName[] = "Local\\MeoCamera.FrameBridge.v1";
 
-std::wstring Widen(const char* utf8) {
-  if (utf8 == nullptr || *utf8 == '\0') return std::wstring();
-  const int needed =
-      MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
-  if (needed <= 0) return std::wstring();
-  std::wstring wide(static_cast<size_t>(needed - 1), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide.data(), needed);
-  return wide;
+bool Widen(const char* utf8, wchar_t* wide, int capacity) {
+  if (utf8 == nullptr || *utf8 == '\0' || wide == nullptr || capacity <= 0) {
+    return false;
+  }
+  return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, wide,
+                             capacity) > 0;
 }
 
 }  // namespace
@@ -52,8 +48,9 @@ Mapping::~Mapping() { Close(); }
 bool Mapping::Create(const char* name, size_t bytes) {
   Close();
 
-  const std::wstring wide = Widen(name != nullptr ? name : kDefaultName);
-  if (wide.empty()) return false;
+  std::array<wchar_t, 260> wide{};
+  if (!Widen(name != nullptr ? name : kDefaultName, wide.data(),
+             static_cast<int>(wide.size()))) return false;
 
   // The default DACL already grants the creating user full access, which is
   // what a same-session frame server needs. Nothing broader is requested,
@@ -62,7 +59,7 @@ bool Mapping::Create(const char* name, size_t bytes) {
   const HANDLE handle = CreateFileMappingW(
       INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
       static_cast<DWORD>(static_cast<uint64_t>(bytes) >> 32),
-      static_cast<DWORD>(bytes & 0xFFFFFFFFu), wide.c_str());
+      static_cast<DWORD>(bytes & 0xFFFFFFFFu), wide.data());
   if (handle == nullptr) return false;
 
   // A section left behind by a previous host run is adopted rather than
@@ -86,11 +83,12 @@ bool Mapping::Create(const char* name, size_t bytes) {
 bool Mapping::Open(const char* name, size_t bytes) {
   Close();
 
-  const std::wstring wide = Widen(name != nullptr ? name : kDefaultName);
-  if (wide.empty()) return false;
+  std::array<wchar_t, 260> wide{};
+  if (!Widen(name != nullptr ? name : kDefaultName, wide.data(),
+             static_cast<int>(wide.size()))) return false;
 
   const HANDLE handle =
-      OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide.c_str());
+      OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide.data());
   if (handle == nullptr) {
     // The ordinary case when the host has not started yet. The caller turns
     // this into a "Meo isn't running" slate, not an error dialog.

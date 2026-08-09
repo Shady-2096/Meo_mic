@@ -1,7 +1,8 @@
 # ADR 0003 — `HKCU` or `HKLM` for the Media Foundation source?
 
-- **Status:** **Blocked.** Nothing is decided here yet.
+- **Status:** **Accepted.** Machine-wide COM registration is required.
 - **Date opened:** 2026-08-07
+- **Date accepted:** 2026-08-09
 - **Plan:** §9.4, §9.6, §18 step 3
 - **Resolved by:** running [`probes/windows-virtual-camera`](../probes/windows-virtual-camera/), registering per-user first
 
@@ -27,9 +28,27 @@ register cleanly per-user regardless, since `HKCU\Software\Classes` merges
 into `HKEY_CLASSES_ROOT` for the app doing the loading. That is a different
 mechanism from frame-server activation and does not answer this.
 
-## Why this is still open
+## Measurement
 
-Needs a Windows 11 machine. The probe is written; it has not been run.
+The probe was run on Windows 11 Pro 25H2, build 26200.8973, in the required
+order. Full observations are recorded in
+[`RESULTS-2026-08-09.md`](../probes/windows-virtual-camera/RESULTS-2026-08-09.md).
+
+- Per-user registration completed without UAC.
+- With only the HKCU registration, `MFCreateVirtualCamera` returned `S_OK`,
+  but `IMFVirtualCamera::Start` returned `0x80070003`
+  (`ERROR_PATH_NOT_FOUND`). No usable camera was published.
+- After machine-wide registration (one UAC prompt), `Start` returned `S_OK`
+  and `MFEnumDeviceSources` listed
+  `Meo Camera Probe (Windows Virtual Camera)`.
+- Elevated Global Win32 DebugView capture independently confirmed that the
+  DLL was loaded by the frame server in session 0, outside the interactive
+  user's session.
+
+## Decision
+
+Register the Media Foundation source under HKLM. The installer must request
+elevation once and explain why; runtime camera use must not request elevation.
 
 ## How to answer it
 
@@ -53,9 +72,9 @@ registration also satisfies a per-user lookup. Record the HRESULT either way;
 - Whether the machine is Windows 10, where `MFCreateVirtualCamera` does not
   exist at all. That is a legitimate result and part of why §9.5 exists.
 
-## Consequences of leaving it open
+## Consequences
 
-§9.6's installer design cannot be finalised. The portable-ZIP-plus-per-user-
-setup story in §16 assumes no elevation; if `HKLM` turns out to be required,
-that story needs a UAC step written into it, and §16.1's honesty requirements
-mean the README has to show it up front rather than let users discover it.
+- The Windows installer owns machine-wide COM registration and removal.
+- A portable ZIP cannot install the camera without a one-time elevated setup
+  action. User-facing installation documentation must say this up front.
+- This does not permit elevation during ordinary camera use.

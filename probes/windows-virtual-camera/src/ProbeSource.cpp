@@ -6,6 +6,15 @@ namespace meo {
 
 ProbeSource::ProbeSource() = default;
 
+IFACEMETHODIMP ProbeSource::QueryInterface(REFIID riid, void** object) {
+  wchar_t requestedInterface[64] = {};
+  StringFromGUID2(riid, requestedInterface, ARRAYSIZE(requestedInterface));
+  const HRESULT hr = RuntimeClassT::QueryInterface(riid, object);
+  ProbeLog(L"ProbeSource::QueryInterface %s -> %s", requestedInterface,
+           FormatHresult(hr).c_str());
+  return hr;
+}
+
 HRESULT ProbeSource::RuntimeClassInitialize() {
   ProbeLog(L"ProbeSource created in process %lu", GetCurrentProcessId());
 
@@ -13,26 +22,34 @@ HRESULT ProbeSource::RuntimeClassInitialize() {
   if (FAILED(hr)) {
     return hr;
   }
+  ProbeLog(L"ProbeSource event queue created");
 
   hr = MFCreateAttributes(&attributes_, 4);
   if (FAILED(hr)) {
     return hr;
   }
+  ProbeLog(L"ProbeSource attributes created");
   // Declares this as a colour camera rather than depth or infrared. Without
   // it the frame server may classify the device as a sensor and hide it from
   // ordinary camera pickers.
-  attributes_->SetUINT32(MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES,
-                         MFFrameSourceTypes_Color);
-
-  hr = Microsoft::WRL::MakeAndInitialize<ProbeStream>(&stream_);
+  hr = attributes_->SetUINT32(MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES,
+                              MFFrameSourceTypes_Color);
   if (FAILED(hr)) {
     return hr;
   }
+  ProbeLog(L"ProbeSource frame-source type set");
+
+  stream_ = Microsoft::WRL::Make<ProbeStream>();
+  if (!stream_) {
+    return E_OUTOFMEMORY;
+  }
+  ProbeLog(L"ProbeSource stream allocated");
   hr = stream_->Initialize(static_cast<IMFMediaSource*>(this),
                            kStreamIdentifier);
   if (FAILED(hr)) {
     return hr;
   }
+  ProbeLog(L"ProbeSource stream initialized");
 
   IMFStreamDescriptor* descriptors[] = {stream_->Descriptor()};
   hr = MFCreatePresentationDescriptor(ARRAYSIZE(descriptors), descriptors,
@@ -40,6 +57,7 @@ HRESULT ProbeSource::RuntimeClassInitialize() {
   if (FAILED(hr)) {
     return hr;
   }
+  ProbeLog(L"ProbeSource presentation descriptor created");
   return presentationDescriptor_->SelectStream(0);
 }
 
@@ -70,9 +88,12 @@ IFACEMETHODIMP ProbeSource::CreatePresentationDescriptor(
   return presentationDescriptor_->Clone(descriptor);
 }
 
-IFACEMETHODIMP ProbeSource::Start(IMFPresentationDescriptor* /*descriptor*/,
+IFACEMETHODIMP ProbeSource::Start(IMFPresentationDescriptor* descriptor,
                                   const GUID* timeFormat,
                                   const PROPVARIANT* startPosition) {
+  if (descriptor == nullptr || startPosition == nullptr) {
+    return E_INVALIDARG;
+  }
   if (timeFormat != nullptr && *timeFormat != GUID_NULL) {
     return MF_E_UNSUPPORTED_TIME_FORMAT;
   }
@@ -81,6 +102,27 @@ IFACEMETHODIMP ProbeSource::Start(IMFPresentationDescriptor* /*descriptor*/,
   Microsoft::WRL::ComPtr<ProbeStream> stream;
   bool announce = false;
   LONGLONG startTime = 0;
+  ComPtr<IMFMediaType> mediaType;
+
+  BOOL selected = FALSE;
+  ComPtr<IMFStreamDescriptor> selectedDescriptor;
+  HRESULT hr = descriptor->GetStreamDescriptorByIndex(
+      0, &selected, &selectedDescriptor);
+  if (FAILED(hr)) {
+    return hr;
+  }
+  if (!selected) {
+    return MF_E_INVALIDREQUEST;
+  }
+  ComPtr<IMFMediaTypeHandler> handler;
+  hr = selectedDescriptor->GetMediaTypeHandler(&handler);
+  if (FAILED(hr)) {
+    return hr;
+  }
+  hr = handler->GetCurrentMediaType(&mediaType);
+  if (FAILED(hr)) {
+    return hr;
+  }
 
   {
     std::lock_guard<std::mutex> guard(lock_);
@@ -111,7 +153,7 @@ IFACEMETHODIMP ProbeSource::Start(IMFPresentationDescriptor* /*descriptor*/,
                             GUID_NULL, S_OK, &streamValue);
   PropVariantClear(&streamValue);
 
-  HRESULT hr = stream->OnSourceStart(startTime);
+  hr = stream->OnSourceStart(mediaType.Get(), startTime);
   if (FAILED(hr)) {
     return hr;
   }
@@ -214,13 +256,7 @@ IFACEMETHODIMP ProbeSource::GetStreamAttributes(DWORD streamIdentifier,
   if (shutdown_ || !stream_) {
     return MF_E_SHUTDOWN;
   }
-  ComPtr<IMFAttributes> streamAttributes;
-  const HRESULT hr = stream_->Descriptor()->QueryInterface(
-      IID_PPV_ARGS(&streamAttributes));
-  if (FAILED(hr)) {
-    return hr;
-  }
-  return streamAttributes.CopyTo(attributes);
+  return stream_->Attributes()->QueryInterface(IID_PPV_ARGS(attributes));
 }
 
 IFACEMETHODIMP ProbeSource::SetD3DManager(IUnknown* /*manager*/) {
@@ -235,7 +271,11 @@ IFACEMETHODIMP ProbeSource::GetService(REFGUID /*service*/, REFIID riid,
   if (object == nullptr) {
     return E_POINTER;
   }
-  return QueryInterface(riid, object);
+  *object = nullptr;
+  wchar_t requestedInterface[64] = {};
+  StringFromGUID2(riid, requestedInterface, ARRAYSIZE(requestedInterface));
+  ProbeLog(L"ProbeSource::GetService requested %s", requestedInterface);
+  return MF_E_UNSUPPORTED_SERVICE;
 }
 
 IFACEMETHODIMP ProbeSource::GetEvent(DWORD flags, IMFMediaEvent** event) {
@@ -279,29 +319,59 @@ IFACEMETHODIMP ProbeSource::QueueEvent(MediaEventType type,
   return eventQueue_->QueueEventParamVar(type, extendedType, status, value);
 }
 
-IFACEMETHODIMP_(NTSTATUS)
+IFACEMETHODIMP
 ProbeSource::KsProperty(PKSPROPERTY, ULONG, void*, ULONG,
                         ULONG* bytesReturned) {
   if (bytesReturned != nullptr) {
     *bytesReturned = 0;
   }
-  return STATUS_NOT_SUPPORTED;
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
 }
 
-IFACEMETHODIMP_(NTSTATUS)
+IFACEMETHODIMP
 ProbeSource::KsMethod(PKSMETHOD, ULONG, void*, ULONG, ULONG* bytesReturned) {
   if (bytesReturned != nullptr) {
     *bytesReturned = 0;
   }
-  return STATUS_NOT_SUPPORTED;
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
 }
 
-IFACEMETHODIMP_(NTSTATUS)
+IFACEMETHODIMP
 ProbeSource::KsEvent(PKSEVENT, ULONG, void*, ULONG, ULONG* bytesReturned) {
   if (bytesReturned != nullptr) {
     *bytesReturned = 0;
   }
-  return STATUS_NOT_SUPPORTED;
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
+}
+
+IFACEMETHODIMP ProbeSource::SetDefaultAllocator(
+    DWORD outputStreamIdentifier, IUnknown* allocator) {
+  if (outputStreamIdentifier != kStreamIdentifier) {
+    return MF_E_INVALIDSTREAMNUMBER;
+  }
+  Microsoft::WRL::ComPtr<ProbeStream> stream;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (shutdown_ || !stream_) {
+      return MF_E_SHUTDOWN;
+    }
+    stream = stream_;
+  }
+  return stream->SetSampleAllocator(allocator);
+}
+
+IFACEMETHODIMP ProbeSource::GetAllocatorUsage(
+    DWORD outputStreamIdentifier, DWORD* inputStreamIdentifier,
+    MFSampleAllocatorUsage* usage) {
+  if (inputStreamIdentifier == nullptr || usage == nullptr) {
+    return E_POINTER;
+  }
+  if (outputStreamIdentifier != kStreamIdentifier) {
+    return MF_E_INVALIDSTREAMNUMBER;
+  }
+  *inputStreamIdentifier = kStreamIdentifier;
+  *usage = MFSampleAllocatorUsage_UsesProvidedAllocator;
+  return S_OK;
 }
 
 }  // namespace meo

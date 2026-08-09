@@ -21,17 +21,18 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] `
 
 if (-not $isAdmin) {
   Write-Host "Elevating (this is the one-time UAC prompt)..." -ForegroundColor Cyan
-  Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList @(
+  $elevated = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @(
     "-NoProfile", "-ExecutionPolicy", "Bypass",
     "-File", "`"$PSCommandPath`""
   )
-  exit $LASTEXITCODE
+  exit $elevated.ExitCode
 }
 
 Write-Host "Registering $dll into HKLM..." -ForegroundColor Cyan
-regsvr32.exe /s $dll
-if ($LASTEXITCODE -ne 0) {
-  throw "regsvr32 failed with exit code $LASTEXITCODE"
+$registration = Start-Process -FilePath "regsvr32.exe" `
+  -ArgumentList "/s `"$dll`"" -Wait -PassThru
+if ($registration.ExitCode -ne 0) {
+  throw "regsvr32 failed with exit code $($registration.ExitCode)"
 }
 
 $clsid = "{0B914DE5-CF52-4F35-B43D-104314D226D1}"
@@ -45,4 +46,3 @@ if (Test-Path $key) {
 }
 
 Write-Host "Now run build\out\MeoProbeHost.exe again." -ForegroundColor Yellow
-Read-Host "Press Enter to close"

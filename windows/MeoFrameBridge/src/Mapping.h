@@ -23,9 +23,8 @@ class Mapping {
   // left one behind. `bytes` is the full mapping size.
   bool Create(const char* name, size_t bytes);
 
-  // Opens an existing section read/write. Readers map writable because the
-  // seqlock protocol only reads, but a read-only view would force a second
-  // code path for no benefit and would break the writer-side tests.
+  // Opens an existing section. Production readers only read it; tests also
+  // use this primitive to inject hostile bytes into the mapping.
   bool Open(const char* name, size_t bytes);
 
   void Close();

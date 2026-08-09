@@ -24,6 +24,7 @@ add_compile_definitions(UNICODE _UNICODE)
 # The media source, loaded by the Windows frame server out of process.
 add_library(MeoProbeSource SHARED
   src/Common.cpp
+  src/ProbeActivate.cpp
   src/ProbeSource.cpp
   src/ProbeStream.cpp
   src/DllMain.cpp
@@ -50,6 +51,11 @@ add_executable(MeoProbeHost
   src/Common.cpp
 )
 
+add_executable(MeoProbeReader
+  host/CaptureOneFrame.cpp
+  src/Common.cpp
+)
+
 target_link_libraries(MeoProbeHost PRIVATE
   mfplat
   mf
@@ -61,8 +67,19 @@ target_link_libraries(MeoProbeHost PRIVATE
   runtimeobject
 )
 
+target_link_libraries(MeoProbeReader PRIVATE
+  mfplat
+  mf
+  mfuuid
+  mfreadwrite
+  mfsensorgroup   # MFCreateVirtualCamera lives here
+  ole32
+  oleaut32
+  runtimeobject
+)
+
 # Keep both next to each other; the registration scripts assume it.
-set_target_properties(MeoProbeSource MeoProbeHost PROPERTIES
+set_target_properties(MeoProbeSource MeoProbeHost MeoProbeReader PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_BINARY_DIR}/out"
   RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/out"
   LIBRARY_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_BINARY_DIR}/out"

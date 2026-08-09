@@ -19,11 +19,11 @@ they are open questions with the cost of leaving them open written down.
 | ADR | Subject | Status |
 |---|---|---|
 | [0001](0001-transport-and-control-plane.md) | WebRTC media plane, JSON control plane | Accepted (inherited), one sub-question open |
-| [0002](0002-directshow-scope.md) | Is a DirectShow backend mandatory on Windows? | **Blocked** — needs the Windows probe run |
-| [0003](0003-windows-registration-scope.md) | `HKCU` or `HKLM` for the MF source? | **Blocked** — needs the Windows probe run |
+| [0002](0002-directshow-scope.md) | Is a DirectShow backend mandatory on Windows? | **Blocked** — required app matrix remains unmeasured |
+| [0003](0003-windows-registration-scope.md) | `HKCU` or `HKLM` for the MF source? | **Accepted** — HKLM required, measured 2026-08-09 |
 | [0004](0004-macos-distribution-reality.md) | How macOS Camera can be distributed with no paid account | **Accepted** — measured 2026-08-07 |
 | [0005](0005-first-desktop-platform.md) | Which desktop platform finishes first | **Accepted** — follows from 0004 |
-| [0006](0006-windows-frame-bridge.md) | Windows frame bridge: shared memory, one writer, N readers | **Accepted** (design) — core measured on macOS; one sub-question open |
+| [0006](0006-windows-frame-bridge.md) | Windows frame bridge: shared memory, one writer, N readers | **Accepted** (core); mapping ownership **Blocked** — session split measured 2026-08-09 |
 | [0007](0007-windows-one-app.md) | One Windows app for mic and camera, engine loaded on demand | **Accepted** (design) — rests on an unmeasured size premise, named there |
 | [0008](0008-android-webrtc-distribution.md) | Android WebRTC binary, provenance, notices, and update policy | **Accepted for Android spike** — Windows distribution remains open |
 
@@ -43,9 +43,9 @@ probe that has not run:
 ~~**Windows frame bridge.**~~ Written as [ADR 0006](0006-windows-frame-bridge.md).
 It did not need ADR 0002 after all: a bridge built for N readers is a strict
 superset of one built for a single reader and costs nothing extra, so the
-dependency was dissolved rather than waited on. One sub-question — which
-namespace the shared section lives in — is open and named there, and the
-existing Windows probe run can answer it.
+dependency was dissolved rather than waited on. The Windows probe measured
+the source in session 0 and ruled out the current `Local\` mapping. Choosing
+and measuring a standard-user cross-session ownership model remains blocked.
 
 ## Format
 

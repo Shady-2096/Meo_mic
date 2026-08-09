@@ -1,6 +1,6 @@
 # ADR 0006 — Windows frame bridge: shared memory, single writer, N readers
 
-- **Status:** Accepted (design), with one sub-question open and named below
+- **Status:** Accepted (portable core); Windows mapping ownership is Blocked
 - **Date:** 2026-08-07
 - **Plan:** §9.3, §9.2, §8.4, §5.4, §13.1, §14, Milestone 4 gate
 - **Depends on:** [ADR 0005](0005-first-desktop-platform.md)
@@ -117,22 +117,29 @@ a camera is streaming.
 
 ## What was measured
 
-Nothing on Windows yet. The portable core — seqlock correctness, wrap
-behaviour, bounded retries, validation against hostile headers, zero-length
-state frames, and both watchdogs — is unit-tested and passing on macOS via a
-POSIX `shm_open` mapping, because the concurrency logic is the part most likely
-to be wrong and the part least dependent on the platform.
+The portable core — seqlock correctness, wrap behaviour, bounded retries,
+validation against hostile headers, zero-length state frames, and both
+watchdogs — is unit-tested and passing on macOS via a POSIX `shm_open`
+mapping, because the concurrency logic is the part most likely to be wrong
+and the part least dependent on the platform.
 
-The Win32 mapping is a thin shim over `CreateFileMappingW` / `MapViewOfFile`
-behind the same interface. It has not been compiled or run.
+On Windows 11 Pro 25H2 build 26200.8973, elevated DebugView Global Win32
+capture recorded the probe DLL in the validation host at PID 4436/session 1
+and in the actual Windows frame server (`svchost.exe`) at PID 4352/session 0.
+The raw observations and method are recorded in
+[`RESULTS-2026-08-09.md`](../probes/windows-virtual-camera/RESULTS-2026-08-09.md).
 
-## Open sub-question: which namespace the mapping lives in
+The Win32 mapping shim was compiled and run on the same machine. The bridge,
+fuzz, concurrent writer/reader, slate, and frame-source suites all passed using
+`CreateFileMappingW` / `MapViewOfFile`. This validates the shim itself, but not
+cross-session attachment: those tests use names inside one interactive
+session.
 
-**This is not decided and must not be guessed.** [ADR 0003](0003-windows-registration-scope.md)
-already notes that the Windows frame server is a separate service running under
-a different account. That raises a question this design cannot answer from
-documentation: **can the process hosting Meo's MF source open a named section
-the user's host process created in the `Local\` namespace?**
+## Resolved measurement: `Local\` cannot join these processes
+
+The probe measured the process hosting Meo's MF source in session 0 while the
+user host was in session 1. A `Local\` named section is session-scoped, so the
+current `Local\` mapping name cannot connect these measured processes.
 
 - If the source is activated in the user's own session, `Local\` works and no
   privilege is needed anywhere.
@@ -143,15 +150,23 @@ the user's host process created in the `Local\` namespace?**
   push a UAC prompt into the *runtime* path, not just install, which is
   materially worse than ADR 0003's worst case.
 
-The name and its security descriptor are therefore confined to one place,
-`Mapping_win32.cpp`, so switching costs a constant rather than a refactor.
+The name and its security descriptor remain confined to
+`Mapping_win32.cpp`, so changing the ownership model does not alter the wire
+format or readers.
 
-**How to answer it:** the existing `probes/windows-virtual-camera` run already
-loads a Meo DLL inside the frame server. Add one line to that probe's
-`DllMain` logging `GetCurrentProcessId()` and the session id from
-`ProcessIdToSessionId`, then read it in DebugView. That is a two-line change to
-code that is already written, and it settles the question in the same session
-that answers ADR 0002 and ADR 0003.
+## Blocked decision: who creates the cross-session mapping
+
+The observation rules out `Local\`, but it does not by itself choose between
+a `Global\` section and a broker/service-owned section. Documentation is not
+accepted as measurement here.
+
+**Required experiment:** compile the Win32 mapping shim, run the normal user
+host with a standard (non-elevated) token, attempt to create the `Global\`
+mapping with the intended read-only frame-server DACL, and record the exact
+HRESULT/Win32 error. In the same run, verify that the session-0 probe source
+can open it read-only. If standard-user creation is denied, design a
+long-lived installer-created broker/service that owns the mapping; runtime
+UAC is not acceptable.
 
 ## Consequences
 

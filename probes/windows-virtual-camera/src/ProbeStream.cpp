@@ -37,12 +37,26 @@ HRESULT ProbeStream::Initialize(IMFMediaSource* source,
     return hr;
   }
 
-  // Without these the frame server treats the stream as a generic media
-  // stream rather than a camera capture pin, and the device does not appear
-  // as a camera at all.
-  descriptor_->SetGUID(MF_DEVICESTREAM_STREAM_CATEGORY, PINNAME_VIDEO_CAPTURE);
-  descriptor_->SetUINT32(MF_DEVICESTREAM_STREAM_ID, streamIdentifier);
-  descriptor_->SetUINT32(MF_DEVICESTREAM_FRAMESERVER_SHARED, 1);
+  hr = MFCreateAttributes(&attributes_, 4);
+  if (FAILED(hr)) {
+    return hr;
+  }
+
+  // The frame server reads these from both the stream attribute store and
+  // the descriptor. Keep them identical, as the Microsoft sample does.
+  IMFAttributes* stores[] = {attributes_.Get(), descriptor_.Get()};
+  for (IMFAttributes* store : stores) {
+    hr = store->SetGUID(MF_DEVICESTREAM_STREAM_CATEGORY,
+                        PINNAME_VIDEO_CAPTURE);
+    if (FAILED(hr)) return hr;
+    hr = store->SetUINT32(MF_DEVICESTREAM_STREAM_ID, streamIdentifier);
+    if (FAILED(hr)) return hr;
+    hr = store->SetUINT32(MF_DEVICESTREAM_FRAMESERVER_SHARED, 1);
+    if (FAILED(hr)) return hr;
+    hr = store->SetUINT32(MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES,
+                          MFFrameSourceTypes_Color);
+    if (FAILED(hr)) return hr;
+  }
 
   return S_OK;
 }
@@ -72,15 +86,38 @@ HRESULT ProbeStream::CreateMediaType(IMFMediaType** type) const {
   return S_OK;
 }
 
-HRESULT ProbeStream::OnSourceStart(LONGLONG startTime100ns) {
+HRESULT ProbeStream::OnSourceStart(IMFMediaType* mediaType,
+                                   LONGLONG startTime100ns) {
+  if (mediaType == nullptr) {
+    return E_POINTER;
+  }
   std::lock_guard<std::mutex> guard(lock_);
   if (shutdown_) {
     return MF_E_SHUTDOWN;
   }
+  if (!sampleAllocator_) {
+    // A normal frame-server activation supplies this through
+    // IMFSampleAllocatorControl. The direct probe reader does not, so give
+    // that diagnostic path an equivalent bounded allocator of its own.
+    ComPtr<IMFVideoSampleAllocatorEx> fallbackAllocator;
+    HRESULT hr = MFCreateVideoSampleAllocatorEx(
+        IID_PPV_ARGS(&fallbackAllocator));
+    if (FAILED(hr)) {
+      return hr;
+    }
+    hr = fallbackAllocator->InitializeSampleAllocator(3, mediaType);
+    if (FAILED(hr)) {
+      return hr;
+    }
+    sampleAllocator_ = fallbackAllocator;
+    ProbeLog(L"ProbeStream created fallback sample allocator");
+  }
+  currentMediaType_ = mediaType;
   startTime100ns_ = startTime100ns;
   wallClockStart100ns_ = static_cast<LONGLONG>(MFGetSystemTime());
   frameIndex_ = 0;
   state_ = MF_STREAM_STATE_RUNNING;
+  ProbeLog(L"ProbeStream source start -> RUNNING");
   return S_OK;
 }
 
@@ -111,32 +148,75 @@ void ProbeStream::OnSourceShutdown() {
   }
 }
 
+HRESULT ProbeStream::SetSampleAllocator(IUnknown* allocator) {
+  if (allocator == nullptr) {
+    return E_POINTER;
+  }
+  ComPtr<IMFVideoSampleAllocator> videoAllocator;
+  HRESULT hr = allocator->QueryInterface(IID_PPV_ARGS(&videoAllocator));
+  if (FAILED(hr)) {
+    return hr;
+  }
+  std::lock_guard<std::mutex> guard(lock_);
+  if (shutdown_) {
+    return MF_E_SHUTDOWN;
+  }
+  sampleAllocator_ = videoAllocator;
+  ProbeLog(L"ProbeStream received frame-server sample allocator");
+  return S_OK;
+}
+
 HRESULT ProbeStream::CreateSample(IMFSample** sample) {
-  ComPtr<IMFMediaBuffer> buffer;
-  HRESULT hr = MFCreateMemoryBuffer(kFrameBytes, &buffer);
-  if (FAILED(hr)) {
-    return hr;
-  }
-
-  BYTE* data = nullptr;
-  hr = buffer->Lock(&data, nullptr, nullptr);
-  if (FAILED(hr)) {
-    return hr;
-  }
-  WriteTestFrame(data, static_cast<LONG>(kWidth), frameIndex_);
-  buffer->Unlock();
-
-  hr = buffer->SetCurrentLength(kFrameBytes);
-  if (FAILED(hr)) {
-    return hr;
+  if (sample == nullptr) {
+    return E_POINTER;
   }
 
   ComPtr<IMFSample> newSample;
-  hr = MFCreateSample(&newSample);
+  HRESULT hr = sampleAllocator_->AllocateSample(&newSample);
   if (FAILED(hr)) {
     return hr;
   }
-  hr = newSample->AddBuffer(buffer.Get());
+
+  ComPtr<IMFMediaBuffer> buffer;
+  hr = newSample->GetBufferByIndex(0, &buffer);
+  if (FAILED(hr)) {
+    return hr;
+  }
+
+  ComPtr<IMF2DBuffer2> buffer2d;
+  if (SUCCEEDED(buffer.As(&buffer2d))) {
+    BYTE* scanline0 = nullptr;
+    BYTE* bufferStart = nullptr;
+    LONG pitch = 0;
+    DWORD bufferLength = 0;
+    hr = buffer2d->Lock2DSize(MF2DBuffer_LockFlags_Write, &scanline0, &pitch,
+                              &bufferStart, &bufferLength);
+    if (FAILED(hr)) {
+      return hr;
+    }
+    if (pitch < static_cast<LONG>(kWidth) ||
+        bufferLength < static_cast<DWORD>(pitch) * kHeight * 3 / 2) {
+      buffer2d->Unlock2D();
+      return MF_E_BUFFERTOOSMALL;
+    }
+    WriteTestFrame(scanline0, pitch, frameIndex_);
+    buffer2d->Unlock2D();
+  } else {
+    BYTE* data = nullptr;
+    DWORD capacity = 0;
+    hr = buffer->Lock(&data, nullptr, &capacity);
+    if (FAILED(hr)) {
+      return hr;
+    }
+    if (capacity < kFrameBytes) {
+      buffer->Unlock();
+      return MF_E_BUFFERTOOSMALL;
+    }
+    WriteTestFrame(data, static_cast<LONG>(kWidth), frameIndex_);
+    buffer->Unlock();
+  }
+
+  hr = buffer->SetCurrentLength(kFrameBytes);
   if (FAILED(hr)) {
     return hr;
   }
@@ -165,7 +245,13 @@ IFACEMETHODIMP ProbeStream::RequestSample(IUnknown* token) {
       return MF_E_SHUTDOWN;
     }
     if (state_ != MF_STREAM_STATE_RUNNING) {
+      ProbeLog(L"ProbeStream RequestSample rejected in state %u",
+               static_cast<unsigned>(state_));
       return MF_E_INVALIDREQUEST;
+    }
+
+    if (frameIndex_ < 3) {
+      ProbeLog(L"ProbeStream RequestSample frame %llu", frameIndex_);
     }
 
     // Hold the request until this frame is actually due. Without this the
@@ -217,6 +303,8 @@ IFACEMETHODIMP ProbeStream::SetStreamState(MF_STREAM_STATE state) {
   if (shutdown_) {
     return MF_E_SHUTDOWN;
   }
+  ProbeLog(L"ProbeStream SetStreamState %u -> %u",
+           static_cast<unsigned>(state_), static_cast<unsigned>(state));
   state_ = state;
   return S_OK;
 }
@@ -299,28 +387,28 @@ IFACEMETHODIMP ProbeStream::QueueEvent(MediaEventType type,
   return eventQueue_->QueueEventParamVar(type, extendedType, status, value);
 }
 
-IFACEMETHODIMP_(NTSTATUS)
+IFACEMETHODIMP
 ProbeStream::KsProperty(PKSPROPERTY, ULONG, void*, ULONG, ULONG* bytesReturned) {
   if (bytesReturned != nullptr) {
     *bytesReturned = 0;
   }
-  return STATUS_NOT_SUPPORTED;
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
 }
 
-IFACEMETHODIMP_(NTSTATUS)
+IFACEMETHODIMP
 ProbeStream::KsMethod(PKSMETHOD, ULONG, void*, ULONG, ULONG* bytesReturned) {
   if (bytesReturned != nullptr) {
     *bytesReturned = 0;
   }
-  return STATUS_NOT_SUPPORTED;
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
 }
 
-IFACEMETHODIMP_(NTSTATUS)
+IFACEMETHODIMP
 ProbeStream::KsEvent(PKSEVENT, ULONG, void*, ULONG, ULONG* bytesReturned) {
   if (bytesReturned != nullptr) {
     *bytesReturned = 0;
   }
-  return STATUS_NOT_SUPPORTED;
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
 }
 
 }  // namespace meo

@@ -104,6 +104,7 @@ std::wstring FormatHresult(HRESULT hr) {
 
 void ProbeLog(const wchar_t* format, ...) {
   wchar_t buffer[1024];
+  wchar_t line[1100];
 
   va_list args;
   va_start(args, format);
@@ -113,9 +114,8 @@ void ProbeLog(const wchar_t* format, ...) {
   // The frame server hosts this DLL in its own process with no console, so
   // OutputDebugString is the only channel that survives there. The console
   // write is for the host executable.
-  OutputDebugStringW(L"[MeoProbe] ");
-  OutputDebugStringW(buffer);
-  OutputDebugStringW(L"\n");
+  _snwprintf_s(line, _TRUNCATE, L"[MeoProbe] %s\n", buffer);
+  OutputDebugStringW(line);
 
   wprintf(L"[MeoProbe] %s\n", buffer);
   fflush(stdout);

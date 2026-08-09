@@ -12,7 +12,7 @@
 // costs one UAC prompt, which constraint C2 permits.
 
 #include "Common.h"
-#include "ProbeSource.h"
+#include "ProbeActivate.h"
 
 #include <new>
 
@@ -58,15 +58,20 @@ class ProbeClassFactory : public IClassFactory {
       return CLASS_E_NOAGGREGATION;
     }
 
-    Microsoft::WRL::ComPtr<meo::ProbeSource> source;
+    wchar_t requestedInterface[64] = {};
+    StringFromGUID2(riid, requestedInterface, ARRAYSIZE(requestedInterface));
+    meo::ProbeLog(L"ClassFactory::CreateInstance requested %s",
+                  requestedInterface);
+
+    Microsoft::WRL::ComPtr<meo::ProbeActivate> activate;
     const HRESULT hr =
-        Microsoft::WRL::MakeAndInitialize<meo::ProbeSource>(&source);
+        Microsoft::WRL::MakeAndInitialize<meo::ProbeActivate>(&activate);
     if (FAILED(hr)) {
       meo::ProbeLog(L"CreateInstance failed: %s",
                     meo::FormatHresult(hr).c_str());
       return hr;
     }
-    return source.CopyTo(riid, object);
+    return activate.CopyTo(riid, object);
   }
 
   IFACEMETHODIMP LockServer(BOOL lock) override {
@@ -148,6 +153,12 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID /*reserved*/) {
   if (reason == DLL_PROCESS_ATTACH) {
     g_module = module;
     DisableThreadLibraryCalls(module);
+    const DWORD processId = GetCurrentProcessId();
+    DWORD sessionId = 0;
+    const BOOL foundSession = ProcessIdToSessionId(processId, &sessionId);
+    meo::ProbeLog(L"DllMain process id: %lu", processId);
+    meo::ProbeLog(L"DllMain session id: %lu%s", sessionId,
+                  foundSession ? L"" : L" (ProcessIdToSessionId failed)");
   }
   return TRUE;
 }

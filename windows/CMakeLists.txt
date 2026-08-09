@@ -67,6 +67,61 @@ target_include_directories(MeoCameraCore PUBLIC MeoVirtualCameraMF/src)
 target_link_libraries(MeoCameraCore PUBLIC MeoFrameBridge)
 
 # ---------------------------------------------------------------------------
+# MeoVirtualCameraMF — the Windows frame-server COM source (§9.4).
+# ---------------------------------------------------------------------------
+
+if(WIN32)
+  add_library(MeoVirtualCameraSource SHARED
+    MeoVirtualCameraMF/src/VirtualCamera.cpp
+    MeoVirtualCameraMF/src/MeoVirtualCameraSource.def
+  )
+  target_include_directories(MeoVirtualCameraSource PRIVATE
+    MeoVirtualCameraMF/src
+  )
+  target_link_libraries(MeoVirtualCameraSource PRIVATE
+    MeoCameraCore
+    mfplat
+    mf
+    mfuuid
+    mfsensorgroup
+    ole32
+    oleaut32
+    runtimeobject
+  )
+
+  add_executable(MeoVirtualCameraManager
+    MeoVirtualCameraMF/src/VirtualCameraManager.cpp
+  )
+  target_include_directories(MeoVirtualCameraManager PRIVATE
+    MeoVirtualCameraMF/src
+  )
+  target_link_libraries(MeoVirtualCameraManager PRIVATE
+    mfplat
+    mf
+    mfuuid
+    mfsensorgroup
+    ole32
+    runtimeobject
+  )
+
+  add_executable(VirtualCameraSourceTests
+    Tests/VirtualCameraSourceTests.cpp
+  )
+  target_include_directories(VirtualCameraSourceTests PRIVATE
+    MeoVirtualCameraMF/src
+  )
+  target_link_libraries(VirtualCameraSourceTests PRIVATE
+    mfplat
+    mf
+    mfuuid
+    mfreadwrite
+    ole32
+  )
+  add_dependencies(VirtualCameraSourceTests MeoVirtualCameraSource)
+  add_test(NAME VirtualCameraSource COMMAND VirtualCameraSourceTests)
+endif()
+
+# ---------------------------------------------------------------------------
 # Tests. These run on Windows and on the development Mac.
 # ---------------------------------------------------------------------------
 
@@ -84,11 +139,8 @@ endforeach()
 # ---------------------------------------------------------------------------
 # Not yet written, listed so the shape of the tree is not a surprise:
 #
-#   MeoVirtualCameraMF/  the COM media source registered with
-#                        MFCreateVirtualCamera (§9.4). Blocked on nothing;
-#                        next piece of work.
 #   MeoCameraHost/       the receiver, decode, and native UI (§9.3).
 #   MeoVirtualCameraDS/  the DirectShow filter, IF ADR 0002 says it is needed.
-#   MeoInstaller/        per-user install, repair, uninstall (§9.6). Waits on
-#                        ADR 0003, which decides whether a UAC prompt is in it.
+#   MeoInstaller/        install, repair, uninstall (§9.6). ADR 0003 measured
+#                        that HKLM COM registration needs one install-time UAC.
 # ---------------------------------------------------------------------------

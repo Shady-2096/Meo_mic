@@ -95,3 +95,5 @@ key.properties
 # Feasibility probe build output (CAMERA_BUILD_PLAN.md §18)
 probes/macos-camera-extension/build/
 probes/windows-virtual-camera/build/
+probes/windows-virtual-camera/build-*/
+windows/build-*/

@@ -14,11 +14,18 @@ namespace meo {
 class ProbeSource
     : public Microsoft::WRL::RuntimeClass<
           Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
-          IMFMediaSourceEx, IMFGetService, IKsControl> {
+          Microsoft::WRL::ChainInterfaces<IMFMediaSourceEx, IMFMediaSource,
+                                          IMFMediaEventGenerator>,
+          IMFGetService, IKsControl,
+          IMFSampleAllocatorControl> {
  public:
   ProbeSource();
 
   HRESULT RuntimeClassInitialize();
+
+  // IUnknown, logged only so the probe records which frame-server contract
+  // is missing if activation fails.
+  IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override;
 
   // IMFMediaEventGenerator
   IFACEMETHODIMP GetEvent(DWORD flags, IMFMediaEvent** event) override;
@@ -51,15 +58,22 @@ class ProbeSource
                             LPVOID* object) override;
 
   // IKsControl
-  IFACEMETHODIMP_(NTSTATUS)
+  IFACEMETHODIMP
   KsProperty(PKSPROPERTY property, ULONG propertyLength, void* propertyData,
              ULONG dataLength, ULONG* bytesReturned) override;
-  IFACEMETHODIMP_(NTSTATUS)
+  IFACEMETHODIMP
   KsMethod(PKSMETHOD method, ULONG methodLength, void* methodData,
            ULONG dataLength, ULONG* bytesReturned) override;
-  IFACEMETHODIMP_(NTSTATUS)
+  IFACEMETHODIMP
   KsEvent(PKSEVENT event, ULONG eventLength, void* eventData, ULONG dataLength,
           ULONG* bytesReturned) override;
+
+  // IMFSampleAllocatorControl
+  IFACEMETHODIMP SetDefaultAllocator(DWORD outputStreamIdentifier,
+                                    IUnknown* allocator) override;
+  IFACEMETHODIMP GetAllocatorUsage(DWORD outputStreamIdentifier,
+                                  DWORD* inputStreamIdentifier,
+                                  MFSampleAllocatorUsage* usage) override;
 
  private:
   static constexpr DWORD kStreamIdentifier = 0;

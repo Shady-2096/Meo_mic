@@ -21,9 +21,10 @@ Write-Host "Registering $dll into HKCU..." -ForegroundColor Cyan
 
 # /n suppresses DllRegisterServer; /i:user routes to DllInstall with "user",
 # which writes HKCU\Software\Classes instead of HKLM.
-regsvr32.exe /n /i:user /s $dll
-if ($LASTEXITCODE -ne 0) {
-  throw "regsvr32 failed with exit code $LASTEXITCODE"
+$registration = Start-Process -FilePath "regsvr32.exe" `
+  -ArgumentList "/n /i:user /s `"$dll`"" -Wait -PassThru
+if ($registration.ExitCode -ne 0) {
+  throw "regsvr32 failed with exit code $($registration.ExitCode)"
 }
 
 $clsid = "{0B914DE5-CF52-4F35-B43D-104314D226D1}"

@@ -23,6 +23,7 @@
 #include <mfreadwrite.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace {
@@ -93,7 +94,9 @@ void PrintUsage() {
       L"                      an explicit --remove run to clean up.\n"
       L"\n"
       L"  --remove            remove a previously created system-lifetime\n"
-      L"                      camera and exit.\n\n");
+      L"                      camera and exit.\n"
+      L"  --hold-seconds N    keep a session camera alive for N seconds\n"
+      L"                      instead of waiting for console input.\n\n");
 }
 
 }  // namespace
@@ -101,6 +104,7 @@ void PrintUsage() {
 int wmain(int argc, wchar_t** argv) {
   MFVirtualCameraLifetime lifetime = MFVirtualCameraLifetime_Session;
   bool removeOnly = false;
+  DWORD holdSeconds = 0;
 
   for (int i = 1; i < argc; ++i) {
     const std::wstring arg = argv[i];
@@ -115,6 +119,14 @@ int wmain(int argc, wchar_t** argv) {
       }
     } else if (arg == L"--remove") {
       removeOnly = true;
+    } else if (arg == L"--hold-seconds" && i + 1 < argc) {
+      wchar_t* end = nullptr;
+      const unsigned long value = wcstoul(argv[++i], &end, 10);
+      if (end == argv[i] || *end != L'\0' || value == 0 || value > 3600) {
+        wprintf(L"--hold-seconds must be between 1 and 3600.\n");
+        return 1;
+      }
+      holdSeconds = static_cast<DWORD>(value);
     } else {
       PrintUsage();
       return arg == L"--help" || arg == L"-h" ? 0 : 1;
@@ -169,6 +181,7 @@ int wmain(int argc, wchar_t** argv) {
   if (removeOnly) {
     hr = camera->Remove();
     wprintf(L"\nRemove() returned %s\n", meo::FormatHresult(hr).c_str());
+    camera.Reset();
     MFShutdown();
     CoUninitialize();
     return SUCCEEDED(hr) ? 0 : 1;
@@ -184,6 +197,8 @@ int wmain(int argc, wchar_t** argv) {
         L"  which is the Probe 3 (registration scope) failure. Check\n"
         L"  whether the DLL is registered in the hive you expect.\n");
     camera->Remove();
+    camera.Reset();
+    fflush(stdout);
     MFShutdown();
     CoUninitialize();
     return 1;
@@ -208,7 +223,13 @@ int wmain(int argc, wchar_t** argv) {
       L"----------------------------------------------------------------\n"
       L"\nPress Enter to stop and remove the camera.\n");
 
-  (void)getwchar();
+  if (holdSeconds > 0) {
+    wprintf(L"Holding the camera for %lu seconds.\n", holdSeconds);
+    fflush(stdout);
+    Sleep(holdSeconds * 1000);
+  } else {
+    (void)getwchar();
+  }
 
   hr = camera->Stop();
   wprintf(L"Stop() returned %s\n", meo::FormatHresult(hr).c_str());

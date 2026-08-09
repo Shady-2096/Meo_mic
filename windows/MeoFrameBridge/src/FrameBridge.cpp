@@ -5,8 +5,6 @@
 #include <cstring>
 
 #if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #else
 #include <ctime>
@@ -336,23 +334,21 @@ void FrameBridgeWriter::Heartbeat() {
 // Reader
 // ---------------------------------------------------------------------------
 
-FrameBridgeReader::FrameBridgeReader() = default;
+FrameBridgeReader::FrameBridgeReader()
+    : mapping_(std::make_unique<detail::Mapping>()) {}
 
 FrameBridgeReader::~FrameBridgeReader() { Close(); }
 
 bool FrameBridgeReader::attached() const {
-  return mapping_ != nullptr && mapping_->valid();
+  return mapping_->valid();
 }
 
 bool FrameBridgeReader::Open(const char* name) {
   Close();
-  auto mapping = std::make_unique<detail::Mapping>();
-  if (!mapping->Open(name, BridgeMappingBytes())) return false;
-  mapping_ = std::move(mapping);
-  return true;
+  return mapping_->Open(name, BridgeMappingBytes());
 }
 
-void FrameBridgeReader::Close() { mapping_.reset(); }
+void FrameBridgeReader::Close() { mapping_->Close(); }
 
 ReadStatus FrameBridgeReader::ReadLatest(void* dest, size_t dest_capacity,
                                          FrameInfo* info) {
