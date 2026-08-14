@@ -119,6 +119,8 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            CrashReportBanner()
+
             // Use proper conditional branching instead of return@Column
             if (!uiState.hasPermission) {
                 PermissionRequest(onRequestPermission)
