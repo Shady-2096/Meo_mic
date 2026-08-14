@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -21,6 +22,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Emulators are x86_64, and an emulator that cannot load the WebRTC
+            // native library is useless for development. Debug keeps every ABI.
+            ndk {
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            }
+        }
         release {
             // Disable minification for now - causes crashes
             isMinifyEnabled = false
@@ -29,6 +37,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // ADR 0008 requires an explicit ABI decision rather than shipping
+            // whatever the AAR happens to carry. The WebRTC x86 and x86-64
+            // libraries are 12.6 MB and 16.1 MB uncompressed and exist for
+            // emulators; no shipping Android phone needs them. Release carries
+            // the two ARM ABIs only.
+            ndk {
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            }
         }
     }
 
@@ -59,6 +75,19 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    testOptions {
+        unitTests.all { test ->
+            // Unit tests fork their own JVM, so a -D on the Gradle command line
+            // does not reach them by itself. GoldenFixtureTest documents
+            // -Dmeo.fixtures.write=true as the way to regenerate the committed
+            // protocol fixtures; this is what makes that instruction true.
+            test.systemProperty(
+                "meo.fixtures.write",
+                System.getProperty("meo.fixtures.write") ?: "false"
+            )
         }
     }
 }
@@ -96,6 +125,18 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-service:2.6.2")
 
     // Network Service Discovery (NSD) - built into Android, no extra dep needed
+
+    // Control plane. ADR 0001 chooses versioned JSON over protobuf; the one
+    // property that matters is safe handling of unknown fields, which comes
+    // from ignoreUnknownKeys plus the golden fixtures in protocol/.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+
+    // Media plane. Pinned exactly per ADR 0008: unprefixed webrtc-sdk artifact,
+    // never a dynamic version, never the package-relocated LiveKit variant.
+    // The AAR ships no license file of its own, so its generated notice set is
+    // vendored under licenses/ and linked from THIRD_PARTY_NOTICES.md. Changing
+    // this coordinate without updating both is a release failure.
+    implementation("io.github.webrtc-sdk:android:144.7559.09")
 
     // QR scanning. ZXing is self-contained: no Play Services, so the APK works
     // on devices without Google services too.

@@ -26,9 +26,54 @@ Planning date: 2026-07-26
 >
 > Read [`adr/README.md`](adr/README.md) before trusting any section below.
 
+### Android transport progress — 2026-08-14
+
+The Android sender is now built end to end, from the camera to a WebRTC peer,
+with the control plane verified over a real TLS connection.
+
+**Built and verified on the JVM (97 tests):**
+
+- `protocol/` — the versioned JSON control plane of §5.3, with hard inbound
+  limits, unknown *fields* tolerated and unknown *message types* refused with a
+  typed error. Golden fixtures live in the repository's `protocol/fixtures/` and
+  are asserted in both directions, so a silent wire change fails the build.
+- `pairing/` — self-signed EC identity, SPKI pinning, the one-time five-minute
+  code of §6.1, per-pairing 256-bit credentials with the §6.1 step 8 sliding
+  30-day expiry, and the channel-bound HMAC of §6.2 step 5. Keystore-backed
+  encrypted storage.
+- `network/ControlListener` — the phone-listens/desktop-dials arrangement of
+  §5.1, bound only to a private address and refusing a wildcard even when asked.
+  One session at a time.
+- `network/IceCandidateFilter` — §6.4's local-route enforcement: host candidates
+  only, on a network this device is actually on, no relay, no loopback, no
+  mDNS-obfuscated addresses, and never a DNS lookup on peer-supplied text.
+- `camera/encode/YuvConverter` — the row-padding and interleaved-chroma cases
+  that a real device produces.
+
+[ADR 0009](adr/0009-android-session-handshake.md) records the handshake as
+built, including one deliberate weakening (the TLS private key is wrapped by a
+Keystore key rather than being a non-extractable Keystore key) and why.
+
+**Built but never run, because no device is attached to the development host:**
+
+- `network/WebRtcPeer` — compiles against the real WebRTC AAR; needs
+  `libjingle_peerconnection_so.so` and a camera.
+- `camera/encode/WebRtcFrameSink` — the CameraX-to-I420 bridge. [ADR 0008](adr/0008-android-webrtc-distribution.md)
+  requires the CameraX-versus-`Camera2Capturer` choice be made on measured
+  720p30 CPU and thermal figures; it is **provisional** until that happens.
+- `discovery/CameraAdvertiser` — needs Android's `NsdManager`.
+- Real sensor output, lens switching, display-off continuation, OEM battery
+  behaviour, and every FPS and thermal claim.
+
+**Still missing entirely:** the desktop. No receiver exists on any platform, so
+no end-to-end video path has ever been exercised — `TestDesktopClient` in the
+test sources is a working reference for the protocol, not a product. The
+Windows frame bridge also remains unreachable across the session boundary
+measured in [ADR 0006](adr/0006-windows-frame-bridge.md).
+
 ### Android capture progress — 2026-08-09
 
-The first Android camera source slice now exists under
+The first Android camera source slice exists under
 `android-app/app/src/main/java/com/meo/camera/`:
 
 - A separate `camera` foreground service owns CameraX capture, the partial wake
@@ -46,12 +91,9 @@ The first Android camera source slice now exists under
   switching, display-off continuation, OEM battery behavior, and thermal/FPS
   claims remain unverified.
 
-This is capture infrastructure, not the Milestone 0 media proof. It does not yet
-contain the TLS listener or WebRTC sender, and it does not send frames to the
-Windows frame bridge. ADR 0008 now records the measured Android WebRTC candidate;
-the next Android gate is integrating it behind the capture service, choosing the
-CameraX-to-WebRTC adapter from measured CPU/thermal results, then adding the local
-signaling listener and 720p30 desktop preview path.
+That slice was capture infrastructure only. The transport described in the
+section above was added on 2026-08-14 and supersedes the "no TLS listener, no
+WebRTC sender" statement that stood here.
 
 ## 0. Constraints that shape every decision below
 

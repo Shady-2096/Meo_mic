@@ -1,0 +1,1 @@
+{"protocol_version":1,"session_id":"-","message_id":42,"sent_at_monotonic_ms":1234567,"payload":{"type":"auth_proof","device_id":"phone-6b4d2a90","display_name":"Pixel 8","nonce":"3e23e8160039594a33894f6564e1b134","proof":"2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"}}

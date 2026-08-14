@@ -25,7 +25,35 @@ Ships inside the APK.
 | kotlinx-coroutines-android | 1.7.3 | Apache-2.0 |
 | ZXing Android Embedded (`com.journeyapps`) | 4.3.0 | Apache-2.0 |
 | ZXing Core (transitive) | via the above | Apache-2.0 |
+| kotlinx-serialization-json | 1.6.0 | Apache-2.0 |
+| WebRTC (`io.github.webrtc-sdk:android`) | 144.7559.09 | BSD-3-Clause, plus the bundled set below |
 | Kotlin standard library | 1.9.20 | Apache-2.0 |
+
+### WebRTC notices
+
+The WebRTC AAR **ships no license or notice file of its own** — a negative
+result measured in [ADR 0008](adr/0008-android-webrtc-distribution.md) — and the
+native library it contributes to the APK vendors many third-party components
+beyond WebRTC itself. Maven metadata alone does not satisfy those obligations,
+so the generated notice set is vendored verbatim:
+
+- [`licenses/webrtc-sdk-android-144.7559.09-NOTICES.md`](licenses/webrtc-sdk-android-144.7559.09-NOTICES.md)
+  — WebRTC's BSD-3-Clause notice followed by its full generated third-party set.
+- [`licenses/webrtc-sdk-android-144.7559.09-WRAPPER-MIT.txt`](licenses/webrtc-sdk-android-144.7559.09-WRAPPER-MIT.txt)
+  — the `webrtc-sdk/android` wrapper that builds and publishes the artifact.
+
+These files must be included in release materials, and
+[`licenses/README.md`](licenses/README.md) lists the four things that move
+together whenever the WebRTC version changes.
+
+The artifact is pinned by checksum in
+`android-app/gradle/verification-metadata.xml`; a mismatch fails the build
+rather than warning. Re-verified 2026-08-14 against Maven Central's published
+`.sha256` and ADR 0008's recorded digest, all three identical:
+`34cf91dd7497e5fe88adb76ba29ccae35db42dd6614ce548b79ce037b6d634d5`.
+
+Release APKs carry `armeabi-v7a` and `arm64-v8a` only. The x86 and x86-64
+WebRTC libraries exist for emulators and are kept in debug builds alone.
 
 Test-only, not shipped: JUnit 4.13.2 (EPL-1.0), Compose UI Tooling and UI Test
 Manifest (Apache-2.0, `debugImplementation` only).
@@ -93,12 +121,13 @@ Not shipped in any artifact; listed for reproducibility.
 
 ## Not yet present
 
-Meo Camera will add a WebRTC distribution (plan §5.2) and `nlohmann/json`
-(§5.3). Neither is linked yet. [ADR 0008](adr/0008-android-webrtc-distribution.md)
-records the measured Android spike candidate, checksum, source commit, and the
-fact that its AAR omits required notices. When it lands, its generated notice
-set must be versioned under `licenses/` and included in release materials. The
-Windows distribution remains open. A GPL fork must not be substituted.
+`nlohmann/json` (§5.3) is not linked yet; the Windows receiver that would use it
+does not exist.
+
+The **Windows** WebRTC distribution remains open. ADR 0008 settled Android only,
+and the Windows x64 binary, its provenance, license bundle, ABI boundary, and
+update policy still need their own measured decision. A GPL fork must not be
+substituted on either platform.
 
 ## Corrections
 

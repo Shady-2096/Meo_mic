@@ -1,0 +1,1 @@
+{"protocol_version":1,"session_id":"-","message_id":42,"sent_at_monotonic_ms":1234567,"payload":{"type":"auth_accept","proof":"fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9","credential":"18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4","expires_at":1793491200000}}

@@ -2,6 +2,7 @@ package com.meo.camera.ui
 
 import androidx.camera.view.PreviewView
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -48,9 +50,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.meo.camera.CameraViewModel
 import com.meo.camera.capture.CameraLens
 import com.meo.camera.capture.CameraSessionStatus
+import com.meo.camera.service.CameraStreamingService
+import com.meo.camera.service.StreamingState
 import com.meo.ui.theme.Catpuccin
 
 @Composable
@@ -64,6 +70,22 @@ fun CameraScreen(
     val capture = uiState.capture
     val isActive = capture.status == CameraSessionStatus.Starting ||
         capture.status == CameraSessionStatus.Capturing
+
+    // The scanner asks for the camera permission itself, and returns null
+    // contents when the user backs out of it.
+    val qrScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { viewModel.onQrScanned(it) }
+    }
+    val scanPairingCode = {
+        qrScanLauncher.launch(
+            ScanOptions().apply {
+                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                setPrompt("Point at the pairing code shown in Meo Camera on your computer")
+                setBeepEnabled(false)
+                setOrientationLocked(false)
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -182,6 +204,35 @@ fun CameraScreen(
             }
         }
 
+        if (isActive) {
+            Spacer(modifier = Modifier.height(12.dp))
+            SessionStatus(
+                network = uiState.network,
+                streaming = uiState.streaming,
+                onPair = scanPairingCode,
+                onTogglePause = { viewModel.setPaused(!uiState.streaming.isPaused) }
+            )
+        }
+
+        uiState.scanError?.let { message ->
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                color = Catpuccin.Yellow.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(12.dp),
+                onClick = viewModel::dismissScanError
+            ) {
+                Text(
+                    text = "$message\nTap to dismiss.",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    color = Catpuccin.Yellow,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+
         if (isActive && capture.maxZoomRatio > capture.minZoomRatio) {
             Spacer(modifier = Modifier.height(22.dp))
             Row(
@@ -215,9 +266,10 @@ fun CameraScreen(
 
         Text(
             text = if (isActive) {
-                "Capture is owned by the foreground service and can continue with the display off. Desktop WebRTC streaming is the next gate."
+                "Capture and the connection are owned by the foreground service, so both continue with the display off. " +
+                    "Video is sent only to a computer you have paired, and only over your local network."
             } else {
-                "This first slice proves service-owned 720p capture without changing the working microphone path."
+                "Start the camera, then pair a computer to send video to it."
             },
             color = Catpuccin.Subtext0,
             fontSize = 12.sp,
@@ -285,6 +337,142 @@ fun CameraScreen(
                     modifier = Modifier.padding(start = 8.dp),
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Connected, Live and Paused as distinct states, plus where the phone can be
+ * reached (plan §6.4, §6.5).
+ *
+ * The address is shown even when discovery is working, because plan §5.1 makes
+ * typing it a first-class path rather than a fallback: receiving mDNS on
+ * Windows can itself involve a firewall interaction, and a user who can read
+ * the address off this screen is never stuck.
+ */
+@Composable
+private fun SessionStatus(
+    network: CameraStreamingService.NetworkState,
+    streaming: StreamingState,
+    onPair: () -> Unit,
+    onTogglePause: () -> Unit
+) {
+    val accent = when {
+        streaming.isPaused -> Catpuccin.Yellow
+        streaming.isStreaming -> Catpuccin.Green
+        streaming.isConnected -> Catpuccin.Blue
+        else -> Catpuccin.Subtext0
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Catpuccin.Surface0)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = when {
+                        streaming.isPaused -> "PAUSED"
+                        streaming.isStreaming -> "LIVE"
+                        streaming.isConnected -> "CONNECTED"
+                        network.isListening -> "WAITING FOR A COMPUTER"
+                        else -> "NOT ON A NETWORK"
+                    },
+                    color = accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp
+                )
+                if (streaming.isStreaming || streaming.isPaused) {
+                    Text(
+                        text = if (streaming.isPaused) "Resume" else "Pause",
+                        modifier = Modifier
+                            .background(accent.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        color = accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            streaming.connectedDesktopName?.let { name ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = name + (streaming.peerAddress?.let { " • $it" } ?: ""),
+                    color = Catpuccin.Text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            if (network.isListening) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "This phone: ${network.address}:${network.port}",
+                    color = Catpuccin.Subtext0,
+                    fontSize = 12.sp
+                )
+            }
+
+            network.discoveryError?.let { message ->
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "$message — the computer can still connect using the address above.",
+                    color = Catpuccin.Yellow,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+            }
+
+            streaming.lastError?.let { message ->
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(text = message, color = Catpuccin.Red, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+
+            if (!streaming.isConnected && network.isListening) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onPair,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = if (network.pairingActive) "Scan a different code" else "Pair a computer",
+                        color = Catpuccin.Text,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                if (network.pairingActive) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Waiting for the computer to connect. The code is valid for five minutes and can be used once.",
+                        color = Catpuccin.Subtext0,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
+            }
+
+            if (streaming.isStreaming || streaming.isPaused) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onTogglePause,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = if (streaming.isPaused) "Resume sending video" else "Pause video",
+                        color = Catpuccin.Text,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }

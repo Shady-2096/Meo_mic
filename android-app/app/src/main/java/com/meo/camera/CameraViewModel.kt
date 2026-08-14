@@ -18,6 +18,8 @@ import com.meo.camera.capture.CameraCaptureState
 import com.meo.camera.capture.CameraLens
 import com.meo.camera.capture.CameraSessionStatus
 import com.meo.camera.service.CameraStreamingService
+import com.meo.camera.service.StreamingState
+import com.meo.pairing.PairingInvite
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +31,11 @@ data class CameraUiState(
     val isPlatformSupported: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
     val hasPermission: Boolean = false,
     val isServiceBound: Boolean = false,
-    val capture: CameraCaptureState = CameraCaptureState()
+    val capture: CameraCaptureState = CameraCaptureState(),
+    val streaming: StreamingState = StreamingState(),
+    val network: CameraStreamingService.NetworkState = CameraStreamingService.NetworkState(),
+    /** Set when a scanned QR code was not a Meo pairing code. */
+    val scanError: String? = null
 )
 
 class CameraViewModel(application: Application) : AndroidViewModel(application) {
@@ -54,8 +60,24 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
             stateJob?.cancel()
             stateJob = viewModelScope.launch {
-                service?.captureState?.collect { capture ->
-                    _uiState.update { it.copy(capture = capture) }
+                val bound = service ?: return@launch
+                // Three independent flows: what the camera is doing, what the
+                // session is doing, and where the phone is reachable. They
+                // change at different times and the screen shows all three.
+                launch {
+                    bound.captureState.collect { capture ->
+                        _uiState.update { it.copy(capture = capture) }
+                    }
+                }
+                launch {
+                    bound.streamingState.collect { streaming ->
+                        _uiState.update { it.copy(streaming = streaming) }
+                    }
+                }
+                launch {
+                    bound.networkState.collect { network ->
+                        _uiState.update { it.copy(network = network) }
+                    }
                 }
             }
         }
@@ -122,6 +144,47 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setTorch(enabled: Boolean) {
         service?.setTorch(enabled)
+    }
+
+    fun setPaused(paused: Boolean) {
+        service?.setPaused(paused)
+    }
+
+    /**
+     * Handles scanned QR text.
+     *
+     * A scanner will hand over whatever the user pointed it at — a Wi-Fi
+     * config, a URL, someone else's app's code — so anything that is not a
+     * valid, unexpired Meo invite is reported to the user rather than acted on.
+     */
+    fun onQrScanned(scanned: String): Boolean {
+        val invite = PairingInvite.parse(scanned)
+        if (invite == null) {
+            _uiState.update { it.copy(scanError = "That is not a Meo pairing code.") }
+            return false
+        }
+        if (invite.isExpired(System.currentTimeMillis())) {
+            _uiState.update {
+                it.copy(scanError = "That pairing code has expired. Generate a new one on the computer.")
+            }
+            return false
+        }
+        val bound = service
+        if (bound == null) {
+            _uiState.update { it.copy(scanError = "Start the camera before pairing.") }
+            return false
+        }
+        bound.beginPairing(invite)
+        _uiState.update { it.copy(scanError = null) }
+        return true
+    }
+
+    fun cancelPairing() {
+        service?.cancelPairing()
+    }
+
+    fun dismissScanError() {
+        _uiState.update { it.copy(scanError = null) }
     }
 
     fun attachPreview(provider: Preview.SurfaceProvider) {

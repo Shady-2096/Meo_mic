@@ -4,8 +4,9 @@
     <!-- Microphone access -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Camera, only used to scan the QR code shown by the desktop app.
-         Requested at the moment you open the scanner, never at startup. -->
+    <!-- Camera. Used to scan the QR code shown by the desktop app, and by Meo
+         Camera to capture video. Requested when you open the scanner or start
+         the camera, never at startup. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
@@ -51,7 +52,9 @@
             android:exported="false" />
 
         <!-- Camera capture is kept separate from the legacy UDP microphone
-             service because camera video will use the Meo Camera WebRTC path. -->
+             service: camera video uses the Meo Camera WebRTC path, and this
+             service also owns the TLS control listener and the mDNS
+             advertisement for the session. -->
         <service
             android:name=".camera.service.CameraStreamingService"
             android:foregroundServiceType="camera"

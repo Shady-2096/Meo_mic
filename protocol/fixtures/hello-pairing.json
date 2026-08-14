@@ -1,0 +1,1 @@
+{"protocol_version":1,"session_id":"-","message_id":42,"sent_at_monotonic_ms":1234567,"payload":{"type":"hello","device_id":"desktop-3c8f0e21","display_name":"Studio PC","nonce":"9f86d081884c7d659a2feaa0c55ad015","pairing_token":"a3f1c07e5b9d24680fe1c3a75d9b820c"}}

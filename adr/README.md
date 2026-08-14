@@ -25,7 +25,8 @@ they are open questions with the cost of leaving them open written down.
 | [0005](0005-first-desktop-platform.md) | Which desktop platform finishes first | **Accepted** — follows from 0004 |
 | [0006](0006-windows-frame-bridge.md) | Windows frame bridge: shared memory, one writer, N readers | **Accepted** (core); mapping ownership **Blocked** — session split measured 2026-08-09 |
 | [0007](0007-windows-one-app.md) | One Windows app for mic and camera, engine loaded on demand | **Accepted** (design) — rests on an unmeasured size premise, named there |
-| [0008](0008-android-webrtc-distribution.md) | Android WebRTC binary, provenance, notices, and update policy | **Accepted for Android spike** — Windows distribution remains open |
+| [0008](0008-android-webrtc-distribution.md) | Android WebRTC binary, provenance, notices, and update policy | **Accepted for Android spike** — landed 2026-08-14 with a measured +18.3 MiB; Windows distribution and the capture-adapter choice remain open |
+| [0009](0009-android-session-handshake.md) | The pairing and session handshake, as built | **Accepted** for Android, verified on the JVM 2026-08-14; the desktop half is unwritten |
 
 ## Still owed before the Milestone 0 gate closes
 
@@ -33,8 +34,13 @@ they are open questions with the cost of leaving them open written down.
 probe that has not run:
 
 - **Windows WebRTC distribution and license.** ADR 0008 settles the Android
-  spike candidate from a measured artifact. The Windows x64 binary, provenance,
+  spike candidate from a measured artifact, and it has now landed with its
+  checksum, notices and size delta recorded. The Windows x64 binary, provenance,
   license bundle, ABI boundary, and update policy remain open.
+- **The Android capture adapter.** ADR 0008 required the CameraX-analysis versus
+  `Camera2Capturer` choice be made on measured 720p30 CPU and thermal figures.
+  CameraX is wired up and recorded as **provisional**; the measurement needs a
+  device.
 - **Recording architecture.** Single shared encoder or a device-gated second
   one (§7.4). Depends on the dual-encoder spike, which needs real phones.
 - **macOS frame bridge.** Exact IOSurface pool shape and wire layout (§8.3).

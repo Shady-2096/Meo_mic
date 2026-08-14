@@ -1,0 +1,1 @@
+{"protocol_version":1,"session_id":"s-7f3a91","message_id":42,"sent_at_monotonic_ms":1234567,"payload":{"type":"camera_control_ack","in_reply_to":41,"applied_lens_facing":"front","applied_zoom_ratio":2.0,"applied_torch":false}}

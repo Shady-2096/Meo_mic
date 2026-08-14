@@ -15,6 +15,8 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.meo.camera.encode.FrameSink
+import com.meo.camera.encode.NullFrameSink
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,9 +28,14 @@ import java.util.concurrent.Executors
  * Service-owned CameraX capture source.
  *
  * ImageAnalysis deliberately keeps a real 720p capture use case alive when the
- * Activity preview surface goes away. Its frames are only measured for now;
- * the WebRTC integration will either consume that analyzer or replace it with
- * a Camera2 capturer after the measured adapter decision in ADR 0008.
+ * Activity preview surface goes away, and its frames are what reach the
+ * network: [frameSink] receives every analysed frame, and is a WebRTC sink
+ * while a desktop is streaming and [NullFrameSink] otherwise.
+ *
+ * ADR 0008 leaves open whether this is the right adapter or whether WebRTC's
+ * own `Camera2Capturer` should own the camera instead. That decision needs
+ * measured 720p30 CPU and thermal figures from real hardware; until then this
+ * path is provisional and the seam is [FrameSink].
  */
 class CameraCaptureManager(
     context: Context,
@@ -47,6 +54,18 @@ class CameraCaptureManager(
     private var preview: Preview? = null
     private var surfaceProvider: Preview.SurfaceProvider? = null
     private var startGeneration = 0
+
+    /**
+     * Where analysed frames go. Swapped for a WebRTC sink when a desktop starts
+     * streaming and back to [NullFrameSink] when it stops, so capture keeps
+     * running — and the preview keeps working — with nothing on the wire.
+     *
+     * Volatile rather than locked: it is written from the service thread and
+     * read once per frame on the analysis thread, and a frame delivered to the
+     * previous sink during a swap is harmless.
+     */
+    @Volatile
+    var frameSink: FrameSink = NullFrameSink
 
     fun start(lens: CameraLens = _state.value.lens) {
         val generation = ++startGeneration
@@ -97,20 +116,38 @@ class CameraCaptureManager(
         mainExecutor.execute { preview?.setSurfaceProvider(null) }
     }
 
-    fun switchLens() {
+    fun switchLens(): CameraLens {
         val nextLens = when (_state.value.lens) {
             CameraLens.Back -> CameraLens.Front
             CameraLens.Front -> CameraLens.Back
         }
-        start(nextLens)
+        return setLens(nextLens)
     }
 
-    fun setZoomRatio(requestedRatio: Float) {
-        val activeCamera = camera ?: return
+    /**
+     * Returns the lens actually selected, which is the current one if this
+     * device has no such camera. Plan §7.3: acknowledge the applied value.
+     */
+    fun setLens(lens: CameraLens): CameraLens {
+        val state = _state.value
+        val available = when (lens) {
+            CameraLens.Back -> state.hasBackCamera
+            CameraLens.Front -> state.hasFrontCamera
+        }
+        // Unknown availability means capture has not bound yet; try anyway and
+        // let bindCamera report the failure.
+        if (!available && (state.hasBackCamera || state.hasFrontCamera)) return state.lens
+        start(lens)
+        return lens
+    }
+
+    /** Returns the zoom that will be applied, clamped to the reported range. */
+    fun setZoomRatio(requestedRatio: Float): Float {
         val appliedRatio = requestedRatio.coerceIn(
             _state.value.minZoomRatio,
             _state.value.maxZoomRatio
         )
+        val activeCamera = camera ?: return _state.value.zoomRatio
         val result = activeCamera.cameraControl.setZoomRatio(appliedRatio)
         result.addListener(
             {
@@ -126,11 +163,13 @@ class CameraCaptureManager(
             },
             mainExecutor
         )
+        return appliedRatio
     }
 
-    fun setTorch(enabled: Boolean) {
-        val activeCamera = camera ?: return
-        if (!_state.value.torchAvailable) return
+    /** Returns false when this device has no torch, whatever was asked for. */
+    fun setTorch(enabled: Boolean): Boolean {
+        val activeCamera = camera ?: return _state.value.torchEnabled
+        if (!_state.value.torchAvailable) return false
         val result = activeCamera.cameraControl.enableTorch(enabled)
         result.addListener(
             {
@@ -145,6 +184,7 @@ class CameraCaptureManager(
             },
             mainExecutor
         )
+        return enabled
     }
 
     fun close() {
@@ -195,10 +235,19 @@ class CameraCaptureManager(
         val analysis = ImageAnalysis.Builder()
             .setResolutionSelector(resolutionSelector)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            // Stated rather than assumed. It is already the default, but the
+            // frame sink converts from this exact format and a device that
+            // handed it RGBA would silently drop every frame.
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
             .build()
             .also { useCase ->
                 useCase.setAnalyzer(analysisExecutor) { image ->
                     try {
+                        // Deliver before measuring, so the reported rate is the
+                        // rate frames actually reached the encoder at.
+                        if (generation == startGeneration) {
+                            frameSink.onFrame(image)
+                        }
                         val fps = frameRateTracker.sample(SystemClock.elapsedRealtimeNanos())
                         if (generation == startGeneration) {
                             _state.update { current ->

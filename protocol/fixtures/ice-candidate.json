@@ -1,0 +1,1 @@
+{"protocol_version":1,"session_id":"s-7f3a91","message_id":42,"sent_at_monotonic_ms":1234567,"payload":{"type":"ice_candidate","sdp_mid":"0","sdp_m_line_index":0,"candidate":"candidate:1 1 udp 2130706431 192.168.1.42 51820 typ host","from_desktop":false}}

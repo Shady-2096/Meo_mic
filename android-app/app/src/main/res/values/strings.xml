@@ -21,5 +21,10 @@
     <string name="notification_text">Streaming microphone to PC</string>
     <string name="camera_notification_title">Meo Camera is active</string>
     <string name="camera_notification_text">Camera capture continues while the screen is off</string>
+    <string name="camera_notification_connected">Connected to %1$s — not sending video yet</string>
+    <string name="camera_notification_live">Sending video to %1$s</string>
+    <string name="camera_notification_paused">Paused — %1$s cannot see you</string>
     <string name="stop_camera">Stop camera</string>
+    <string name="pause_camera">Pause</string>
+    <string name="resume_camera">Resume</string>
 </resources>

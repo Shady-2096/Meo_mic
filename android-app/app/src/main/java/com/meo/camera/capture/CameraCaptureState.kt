@@ -1,8 +1,19 @@
 package com.meo.camera.capture
 
-enum class CameraLens {
-    Back,
-    Front
+enum class CameraLens(
+    /**
+     * The spelling used on the control channel. Kept next to the enum so both
+     * directions of the mapping are impossible to change independently.
+     */
+    val wireName: String
+) {
+    Back("back"),
+    Front("front");
+
+    companion object {
+        fun fromWireName(name: String): CameraLens? =
+            entries.firstOrNull { it.wireName.equals(name, ignoreCase = true) }
+    }
 }
 
 enum class CameraSessionStatus {

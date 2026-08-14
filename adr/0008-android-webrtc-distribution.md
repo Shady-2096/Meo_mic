@@ -1,7 +1,7 @@
 # ADR 0008 — Android WebRTC distribution and provenance
 
 - **Status:** Accepted for the Android feasibility spike; Windows distribution remains open
-- **Date:** 2026-08-09
+- **Date:** 2026-08-09, integration recorded 2026-08-14
 - **Plan:** §5.2, §16, Milestone 0 and Milestone 3
 - **Depends on:** [ADR 0001](0001-transport-and-control-plane.md)
 
@@ -94,6 +94,75 @@ file**. Maven metadata alone does not satisfy binary-redistribution notices.
 - This does not close the full Milestone 0 distribution gate. The Windows x64
   WebRTC build, its provenance, license bundle, ABI boundary, and update policy
   still need their own measured decision.
+
+## Integration outcome, 2026-08-14
+
+The dependency has landed with the first peer-connection code. What this ADR
+required on landing, and what actually happened:
+
+**Checksum in dependency verification.** Done. Re-downloaded from Maven Central
+and the digest matched both the published `.sha256` and the digest recorded
+above, three ways identical. `android-app/gradle/verification-metadata.xml` now
+pins 451 components including this AAR. Verified to have teeth: altering one
+byte of the expected digest fails the build with an explicit compromise warning
+rather than a silent fallback.
+
+**Notices.** The AAR still ships none, as measured. `Licenses/WEBRTC.md` and the
+wrapper `LICENSE` from tag `v144.7559.09` are vendored verbatim under
+`licenses/`, indexed from `THIRD_PARTY_NOTICES.md`, with the four
+move-together items listed in `licenses/README.md`.
+
+**Measured APK size, and the ABI decision.** This ADR refused to guess, so:
+
+| Build | Before | After | Delta |
+|---|---:|---:|---:|
+| Release, unsigned | 12,181,265 B | 31,433,011 B | **+19,251,746 B (+18.4 MiB)** |
+
+"After" is the complete transport, so a small part of that delta is the new
+Kotlin rather than the AAR. `libjingle_peerconnection_so.so` alone accounts for
+18,920,908 bytes uncompressed across the two shipped ABIs — 12,092,568 for
+arm64-v8a and 6,828,340 for armeabi-v7a — which is almost all of it.
+
+Release now carries `armeabi-v7a` and `arm64-v8a` only. The x86 and x86-64
+libraries are 12.6 MB and 16.1 MB uncompressed, exist for emulators, and no
+shipping Android phone needs them; debug keeps all four so emulator development
+still works. Keeping them in release would have roughly doubled the delta again.
+
+18.3 MiB is a real cost for an app that was 11.6 MiB, and it is the price of not
+reimplementing congestion control, loss recovery and DTLS-SRTP. Worth revisiting
+only if a stripped variant is measured after the VP8 fallback decision.
+
+## Provisional decision: CameraX keeps the camera
+
+This ADR left the adapter question open and required it be settled "by measured
+720p30 CPU, thermal, and control support, not by API convenience". **That
+measurement has not happened** — no Android device is attached to this
+repository's development host — so this is recorded as provisional rather than
+Accepted.
+
+What was built: CameraX keeps the camera, and its `ImageAnalysis` frames are
+converted to I420 and pushed into a WebRTC `VideoSource`
+(`camera/encode/WebRtcFrameSink.kt`).
+
+Why this way round for now:
+
+- The capture service, wake lock, deterministic stop, lens switching, zoom and
+  torch already exist and work against CameraX. `Camera2Capturer` would replace
+  all of it before a single frame had ever been measured.
+- The seam is narrow. `FrameSink` is the only thing the capture path knows
+  about, so a texture-based capturer replaces one file without touching the
+  service or the controls.
+
+What it costs, and what has to be measured before this becomes Accepted:
+
+- **A per-frame CPU copy.** `Camera2Capturer` can hand WebRTC a texture and
+  avoid it entirely. At 720p30 this is the number that decides the question.
+- **Thermal behaviour over a sustained session**, which the copy directly
+  affects.
+- Whether CameraX's controls remain responsive while the analyzer is saturated.
+
+If those measurements go against it, replace `WebRtcFrameSink`; nothing else in
+the design depends on which side owns the camera.
 
 ## Reproduction
 

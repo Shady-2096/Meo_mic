@@ -16,9 +16,12 @@ lightweight, and free.
 - **Volume control** - Adjust input volume on both phone and PC (0-200%)
 - **Mute button** - Quick mute/unmute from your phone
 - **Low latency** - Optimized UDP streaming with latency display
-- **Camera capture preview (in development)** - Service-owned CameraX capture,
-  lens switching, zoom, torch, and screen-off lifecycle groundwork. Video is not
-  sent to the desktop yet; follow `CAMERA_BUILD_PLAN.md` for the active gates.
+- **Camera (in development)** - Service-owned CameraX capture with lens
+  switching, zoom, torch and screen-off lifecycle, plus the phone's side of the
+  transport: pinned-TLS pairing, a versioned JSON control plane, mDNS
+  advertising, and a LAN-only WebRTC sender. **There is still no desktop app to
+  receive it**, so no end-to-end video path exists yet. See
+  `CAMERA_BUILD_PLAN.md` for what is verified and what is not.
 - **Modern UI** - Beautiful Catpuccin-themed dark interface
 - **Open source** - Free forever
 

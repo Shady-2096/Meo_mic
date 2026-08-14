@@ -28,18 +28,32 @@ import com.meo.camera.capture.CameraCaptureManager
 import com.meo.camera.capture.CameraCaptureState
 import com.meo.camera.capture.CameraLens
 import com.meo.camera.capture.CameraSessionStatus
+import com.meo.discovery.CameraAdvertiser
+import com.meo.network.ControlListener
+import com.meo.pairing.DeviceTrust
+import com.meo.pairing.KeystoreSecureStore
+import com.meo.pairing.PairingInvite
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
- * Owns camera capture independently of the Activity so a user-started session
- * can continue after the preview leaves the screen or the display turns off.
+ * Owns camera capture, the control listener, and the media session
+ * independently of the Activity, so a user-started session continues after the
+ * preview leaves the screen or the display turns off.
+ *
+ * Everything durable lives here rather than in the ViewModel for the reason
+ * plan §7.2 gives: the Activity's lifecycle is not the session's lifecycle. A
+ * phone being used as a webcam spends most of its time with the screen off.
  */
 class CameraStreamingService : LifecycleService() {
     companion object {
         const val ACTION_START = "com.meo.camera.START"
         const val ACTION_STOP = "com.meo.camera.STOP"
+        const val ACTION_PAUSE = "com.meo.camera.PAUSE"
+        const val ACTION_RESUME = "com.meo.camera.RESUME"
         const val EXTRA_LENS = "lens"
 
         private const val NOTIFICATION_CHANNEL_ID = "meo_camera_capture"
@@ -49,7 +63,29 @@ class CameraStreamingService : LifecycleService() {
     private val binder = LocalBinder()
     private lateinit var captureManager: CameraCaptureManager
     private lateinit var appOpsManager: AppOpsManager
+    private lateinit var trust: DeviceTrust
+    private lateinit var coordinator: CameraSessionCoordinator
+    private lateinit var controlListener: ControlListener
+    private lateinit var advertiser: CameraAdvertiser
+
     private var wakeLock: PowerManager.WakeLock? = null
+
+    private val _streamingState = MutableStateFlow(StreamingState())
+    val streamingState: StateFlow<StreamingState> = _streamingState.asStateFlow()
+
+    private val _networkState = MutableStateFlow(NetworkState())
+    val networkState: StateFlow<NetworkState> = _networkState.asStateFlow()
+
+    /** What the UI needs to tell the user where the phone is reachable. */
+    data class NetworkState(
+        val isListening: Boolean = false,
+        val address: String? = null,
+        val port: Int = 0,
+        val advertisedName: String? = null,
+        val discoveryError: String? = null,
+        val pairingActive: Boolean = false
+    )
+
     private val cameraAppOpsListener = AppOpsManager.OnOpChangedListener { operation, changedPackage ->
         if (operation != AppOpsManager.OPSTR_CAMERA || changedPackage != packageName) {
             return@OnOpChangedListener
@@ -73,6 +109,17 @@ class CameraStreamingService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         captureManager = CameraCaptureManager(this, this)
+        trust = DeviceTrust(
+            secureStore = KeystoreSecureStore(this),
+            displayName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android phone"
+        )
+        coordinator = CameraSessionCoordinator(this, captureManager) { state ->
+            _streamingState.value = state
+            refreshNotification()
+        }
+        controlListener = ControlListener(trust, coordinator)
+        advertiser = CameraAdvertiser(this)
+
         appOpsManager = getSystemService(AppOpsManager::class.java)
         createNotificationChannel()
         appOpsManager.startWatchingMode(
@@ -86,6 +133,7 @@ class CameraStreamingService : LifecycleService() {
                     // A failed bind must not strand an indefinite wake lock or
                     // claim that camera capture is still active.
                     releaseWakeLock()
+                    stopNetwork()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -103,6 +151,8 @@ class CameraStreamingService : LifecycleService() {
         when (intent?.action) {
             ACTION_START -> startCapture(intent.requestedLens())
             ACTION_STOP -> stopCapture()
+            ACTION_PAUSE -> setPaused(true)
+            ACTION_RESUME -> setPaused(false)
         }
         return Service.START_NOT_STICKY
     }
@@ -127,8 +177,43 @@ class CameraStreamingService : LifecycleService() {
         captureManager.setTorch(enabled)
     }
 
+    /**
+     * Pausing from the phone is the same operation the desktop can request: the
+     * camera stays open and the OS privacy indicator stays on, but no frames
+     * leave the device.
+     */
+    fun setPaused(paused: Boolean) {
+        coordinator.onPauseChanged(
+            session = controlListener.activeSession ?: return,
+            paused = paused
+        )
+    }
+
+    /** Called by the UI once a QR code has been scanned and understood. */
+    fun beginPairing(invite: PairingInvite) {
+        controlListener.beginPairing(invite)
+        _networkState.value = _networkState.value.copy(pairingActive = true)
+    }
+
+    fun cancelPairing() {
+        controlListener.cancelPairing()
+        _networkState.value = _networkState.value.copy(pairingActive = false)
+    }
+
+    /** This phone's own identity, for the pairing screen. */
+    fun phonePin(): String = trust.pin
+
+    fun phoneDeviceId(): String = trust.deviceId
+
+    fun pairedComputers() = trust.pairings.all()
+
+    fun revokePairing(desktopDeviceId: String) {
+        trust.pairings.remove(desktopDeviceId)
+    }
+
     fun stopCapture() {
         captureManager.stop()
+        stopNetwork()
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -136,6 +221,8 @@ class CameraStreamingService : LifecycleService() {
 
     override fun onDestroy() {
         appOpsManager.stopWatchingMode(cameraAppOpsListener)
+        stopNetwork()
+        coordinator.close()
         captureManager.close()
         releaseWakeLock()
         super.onDestroy()
@@ -167,10 +254,46 @@ class CameraStreamingService : LifecycleService() {
             )
             acquireWakeLock()
             captureManager.start(lens)
+            startNetwork()
         } catch (_: SecurityException) {
             releaseWakeLock()
             stopSelf()
         }
+    }
+
+    private fun startNetwork() {
+        // Pairings that lapsed while the app was closed are dropped before the
+        // listener starts trusting anything.
+        trust.pairings.purgeExpired(System.currentTimeMillis())
+
+        if (!controlListener.start()) {
+            _networkState.value = NetworkState(
+                isListening = false,
+                discoveryError = "no private network to listen on — connect to Wi-Fi"
+            )
+            return
+        }
+
+        advertiser.start(
+            deviceId = trust.deviceId,
+            displayName = trust.displayName,
+            port = controlListener.boundPort
+        )
+        _networkState.value = NetworkState(
+            isListening = true,
+            address = controlListener.boundAddress?.hostAddress,
+            port = controlListener.boundPort,
+            advertisedName = advertiser.registeredName,
+            discoveryError = advertiser.lastError,
+            pairingActive = controlListener.pairingInProgress != null
+        )
+        refreshNotification()
+    }
+
+    private fun stopNetwork() {
+        advertiser.stop()
+        controlListener.stop()
+        _networkState.value = NetworkState()
     }
 
     @SuppressLint("WakelockTimeout")
@@ -206,6 +329,24 @@ class CameraStreamingService : LifecycleService() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
+    private fun refreshNotification() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        getSystemService(NotificationManager::class.java)
+            ?.notify(NOTIFICATION_ID, createNotification())
+    }
+
+    private fun serviceIntent(action: String, requestCode: Int): PendingIntent =
+        PendingIntent.getService(
+            this,
+            requestCode,
+            Intent(this, CameraStreamingService::class.java).apply { this.action = action },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
     private fun createNotification(): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -217,30 +358,60 @@ class CameraStreamingService : LifecycleService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val stopIntent = Intent(this, CameraStreamingService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val streaming = _streamingState.value
+        // Connected, Live and Paused are distinct states in the notification as
+        // well as in the app (plan §6.5). The one place a user is most likely to
+        // look while the screen is otherwise busy is the notification shade.
+        val text = when {
+            streaming.isPaused -> getString(
+                R.string.camera_notification_paused,
+                streaming.connectedDesktopName.orEmpty()
+            )
+            streaming.isStreaming -> getString(
+                R.string.camera_notification_live,
+                streaming.connectedDesktopName.orEmpty()
+            )
 
-        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            streaming.isConnected -> getString(
+                R.string.camera_notification_connected,
+                streaming.connectedDesktopName.orEmpty()
+            )
+
+            else -> getString(R.string.camera_notification_text)
+        }
+
+        val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle(getString(R.string.camera_notification_title))
-            .setContentText(getString(R.string.camera_notification_text))
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setContentIntent(openAppPendingIntent)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                getString(R.string.stop_camera),
-                stopPendingIntent
-            )
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .build()
+
+        // Pause is only meaningful while something is actually being sent.
+        if (streaming.isStreaming || streaming.isPaused) {
+            if (streaming.isPaused) {
+                builder.addAction(
+                    android.R.drawable.ic_media_play,
+                    getString(R.string.resume_camera),
+                    serviceIntent(ACTION_RESUME, requestCode = 2)
+                )
+            } else {
+                builder.addAction(
+                    android.R.drawable.ic_media_pause,
+                    getString(R.string.pause_camera),
+                    serviceIntent(ACTION_PAUSE, requestCode = 3)
+                )
+            }
+        }
+
+        builder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            getString(R.string.stop_camera),
+            serviceIntent(ACTION_STOP, requestCode = 1)
+        )
+        return builder.build()
     }
 
     private fun Intent.requestedLens(): CameraLens =

@@ -1,0 +1,1 @@
+{"protocol_version":1,"session_id":"s-7f3a91","message_id":42,"sent_at_monotonic_ms":1234567,"payload":{"type":"session_ready","session_id":"s-7f3a91","capabilities":{"lens_facing":"back","has_front":true,"has_back":true,"min_zoom_ratio":1.0,"max_zoom_ratio":8.0,"torch_available":true,"capture_modes":[{"width":1280,"height":720,"fps":30},{"width":1920,"height":1080,"fps":30}]}}}
